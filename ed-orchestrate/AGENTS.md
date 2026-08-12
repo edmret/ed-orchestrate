@@ -33,7 +33,10 @@ If validation fails, show the errors and stop rather than guessing a fix.
 In priority order:
 1. The user named a role explicitly (case/slug-normalize, e.g. "the Tester" → `tester`).
 2. Exactly one role exists in `agents.json` → use it.
-3. Infer from task phrasing against each role's `description` field.
+3. Infer from task phrasing against each role's `description` field. If the phrasing
+   plausibly matches more than one role equally well — most likely `reviewer` vs
+   `code-reviewer`, since both are diff-review gates by design — don't guess between
+   them; treat it as still ambiguous and fall through to step 4.
 4. Still ambiguous → ask one question (see host overlay for the mechanism) rather than
    guessing.
 

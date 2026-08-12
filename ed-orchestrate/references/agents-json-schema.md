@@ -71,12 +71,30 @@ output, not a second source of truth.
 | `.fallbacks[].model` | string | yes, per entry | same semantics as `.model` |
 | `.fallbacks[].provider` | string or `null` | yes, per entry | same semantics as `.provider` — meaningful only when that entry's `harness == "opencode"` |
 | `.fallbacks[].effort` | same enum as `.effort`, or `null` | yes, per entry | same semantics as `.effort` |
+| `.linearProject` | string, or absent | no | optional, meaningful only for the `manager` role; the Linear project/team key `manager` tracks issues under, asked once during `ed-orchestrate-init`'s manager-only prompt at step 3. Absent means `manager` still splits tasks but creates no Linear issues — see [role-defaults.md](role-defaults.md)'s `manager` section for how it's substituted into the materialized `systemPromptSeed` |
 | `defaults.role` | string | no | must reference an existing key under `roles` |
 | `defaults.worktreeStrategy` / `defaults.delegationMode` | same enums as above | no | fallback for a hand-edited role object missing that field (shouldn't happen via `ed-orchestrate-init`, since it always fills every field) |
 
 A fallback entry carries **only** `harness`/`model`/`provider`/`effort`.
 `worktreeStrategy`, `delegationMode`, `tools`, and `systemPromptSeed` stay role-level
 and apply whichever binding resolves — primary or fallback.
+
+## Optional field example: `manager`'s `linearProject`
+
+```json
+"manager": {
+  "description": "Turns an existing task list into tracked work items — Linear issues when a project is configured, otherwise a plain checklist.",
+  "harness": "claude",
+  "model": "sonnet",
+  "provider": null,
+  "effort": "medium",
+  "tools": null,
+  "systemPromptSeed": "You are the manager sub-agent. ... Track these tasks as issues in the \"ENG\" Linear project via the orca-linear skill. ...",
+  "worktreeStrategy": "current",
+  "delegationMode": "supervised",
+  "linearProject": "ENG"
+}
+```
 
 Validate any file against this schema with
 `ed-orchestrate/scripts/validate_agents_json.py <path>`.

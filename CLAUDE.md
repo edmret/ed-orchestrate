@@ -14,7 +14,8 @@ ln -s ../../ed-orchestation/ed-orchestrate-init ~/.claude/skills/ed-orchestrate-
 ```
 
 - **`ed-orchestrate`** — delegates a coding sub-task to a configured sub-agent role
-  (coder/planner/tester/reviewer/custom). Reads the target project's
+  (coder/planner/tester/reviewer/architect/manager/code-reviewer/designer/
+  qa-designer/custom). Reads the target project's
   `.orchestrate/agents.json`, resolves that role's harness/model/provider,
   and runs the matching `orca` invocation.
 - **`ed-orchestrate-init`** — interviews the user to build that `agents.json` roster
@@ -85,7 +86,8 @@ Required per-role fields: `description`, `harness`, `model`, `provider`, `effort
 delegation names a harness other than the role's primary one
 (`ed-orchestrate/AGENTS.md` step 2a).
 
-Built-in roles (`coder`/`planner`/`tester`/`reviewer`) get their default
+Built-in roles (`coder`/`planner`/`tester`/`reviewer`/`architect`/`manager`/
+`code-reviewer`/`designer`/`qa-designer`) get their default
 `description` and `systemPromptSeed` from
 `ed-orchestrate/references/role-defaults.md`, materialized verbatim into the project's
 `agents.json` at init time. That file is the single source of truth for those
@@ -104,7 +106,8 @@ that span must never be touched by regeneration.
 
 ### v1 scope limits (intentional, not gaps to "fix")
 
-- `ed-orchestrate-init` supports adding at most one custom role beyond the four
-  built-ins (`coder`, `planner`, `tester`, `reviewer`) per interview pass.
+- `ed-orchestrate-init` supports adding at most one custom role beyond the nine
+  built-ins (`coder`, `planner`, `tester`, `reviewer`, `architect`, `manager`,
+  `code-reviewer`, `designer`, `qa-designer`) per interview pass.
 - Native per-harness agent-file generation is opencode-only; every other harness
   relies solely on `agents.json` + the AGENTS.md roster block.

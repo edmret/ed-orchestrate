@@ -36,6 +36,11 @@ options: one per built-in role, each option's description quoted from that role'
   - label: "planner"
   - label: "tester"
   - label: "reviewer"
+  - label: "architect"
+  - label: "manager"
+  - label: "code-reviewer"
+  - label: "designer"
+  - label: "qa-designer"
 ```
 ("Other" is always available for one custom role name — v1 supports exactly one
 extra custom role per init pass.)
@@ -137,8 +142,9 @@ harness, `provider` is always `null`.
 
 ## Step 3 — description and seed (free text, not a structured question)
 
-Built-in role (`coder`, `planner`, `tester`, `reviewer`) — show both defaults
-from `ed-orchestrate/references/role-defaults.md` and offer accept-or-override:
+Built-in role (`coder`, `planner`, `tester`, `reviewer`, `architect`, `manager`,
+`code-reviewer`, `designer`, `qa-designer`) — show both defaults from
+`ed-orchestrate/references/role-defaults.md` and offer accept-or-override:
 
 > Defaults for `<role>`:
 > - description: "<role-defaults.md description>"
@@ -153,6 +159,24 @@ Custom role — no default exists, so ask as before:
 > for opencode roles becomes the generated agent file's `description:`)."
 
 Custom roles get `systemPromptSeed: null`.
+
+## Step 3 — Linear project (manager only, free text, optional)
+
+Only asked when the role being configured is `manager`, and asked **before** the
+description/seed prose exchange above (so that exchange's preview shows the
+already-resolved seed text, never raw template syntax). Plain conversational
+prompt, not a structured question:
+
+> Which Linear project or team key should `manager` track issues under? This is
+> optional — leave it blank and `manager` will still track tasks as a plain
+> checklist, just without creating Linear issues. (Add or change this later by
+> re-running `ed-orchestrate-init manager`.)
+
+Take the reply verbatim (trimmed) as `linearProject`; if left blank, omit the
+field entirely (don't write `null`). Then resolve the `{{LINEAR_PROJECT_LINE}}`
+placeholder in the manager `systemPromptSeed` per
+`ed-orchestrate/references/role-defaults.md`'s `manager` section, using whichever
+of the two fill sentences applies, before showing the description/seed preview.
 
 ## Step 3b — add or edit a fallback harness
 

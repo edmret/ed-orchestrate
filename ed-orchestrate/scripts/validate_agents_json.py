@@ -100,6 +100,13 @@ def validate(data):
                 f"{prefix}.delegationMode: must be one of {sorted(DELEGATION_MODES)}, got {mode!r}"
             )
 
+        linear_project = role.get("linearProject")
+        if linear_project is not None:
+            if not isinstance(linear_project, str):
+                errors.append(f"{prefix}.linearProject: must be a string if present")
+            elif not linear_project.strip():
+                errors.append(f"{prefix}.linearProject: must be a non-empty string if present")
+
         fallbacks = role.get("fallbacks")
         if fallbacks is not None:
             if not isinstance(fallbacks, list):

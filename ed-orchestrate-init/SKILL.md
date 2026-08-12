@@ -2,7 +2,8 @@
 name: ed-orchestrate-init
 description: >-
   Interview the user to configure ed-orchestrate's sub-agent roster for THIS
-  project — which roles exist (coder, planner, tester, reviewer, or custom), and
+  project — which roles exist (coder, planner, tester, reviewer, architect,
+  manager, code-reviewer, designer, qa-designer, or custom), and
   per role which harness (claude, codex, opencode, agy/antigravity, gemini,
   cursor, droid), model, and (for opencode) provider to use. Writes
   .orchestrate/agents.json and updates the delimited

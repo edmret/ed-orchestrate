@@ -38,8 +38,11 @@ the step 2 picker.
 ## 2. Pick roles
 
 One multi-select question: `coder` (implementation), `planner` (task breakdown),
-`tester` (test writing/verification), `reviewer` (code review/critique) — plus an
-"Other" free-text option for one additional custom role name.
+`tester` (test writing/verification), `reviewer` (correctness/security review),
+`architect` (research and structural design), `manager` (task tracking + Linear
+issues), `code-reviewer` (code-quality review), `designer` (UI/UX spec),
+`qa-designer` (visual/UX fidelity check) — plus an "Other" free-text option for
+one additional custom role name.
 
 v1 limit: more than one extra custom role in a single pass isn't supported —
 either run `ed-orchestrate-init` again afterward to add another, or hand-edit
@@ -64,14 +67,25 @@ For each selected role:
   drift) plus Other for the exact id; `provider` stays `null`.
 - **Prose exchange** (plain text, not a structured question) — description and
   system prompt seed. For a **built-in** role (`coder`, `planner`, `tester`,
-  `reviewer`), show that role's default `description` and `systemPromptSeed` from
-  `ed-orchestrate/references/role-defaults.md` and let the user accept both or
-  type a replacement description; on accept, materialize both defaults verbatim
-  into `agents.json`, and on override use the typed description with the default
-  seed. For a **custom** role, ask for a one-line description as free text (used
-  in the AGENTS.md roster table, and for opencode roles as the generated agent
-  file's `description:`), take the reply verbatim, and set
+  `reviewer`, `architect`, `manager`, `code-reviewer`, `designer`,
+  `qa-designer`), show that role's default `description` and `systemPromptSeed`
+  from `ed-orchestrate/references/role-defaults.md` and let the user accept both
+  or type a replacement description; on accept, materialize both defaults
+  verbatim into `agents.json`, and on override use the typed description with
+  the default seed. For a **custom** role, ask for a one-line description as
+  free text (used in the AGENTS.md roster table, and for opencode roles as the
+  generated agent file's `description:`), take the reply verbatim, and set
   `systemPromptSeed: null` — there is no default for custom roles.
+- **Manager-only: Linear project** (plain text, optional) — if this role is
+  `manager`, ask this *before* the prose exchange above (exact prompt in
+  `references/interview-flow.md`) which Linear project/team key `manager`
+  should track issues under. Blank/skip is valid — `manager` still functions
+  without ticket tracking, tracking tasks as a plain checklist. Store a
+  non-blank answer as `linearProject` on the role object (omit the field if
+  skipped — never write `null`), and resolve the `{{LINEAR_PROJECT_LINE}}`
+  placeholder in the materialized `systemPromptSeed` accordingly before showing
+  the description/seed preview — see `role-defaults.md`'s `manager` section for
+  the exact substitution text.
 
 ## 3b. Add or edit a fallback harness
 
