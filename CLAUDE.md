@@ -6,9 +6,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A pair of Claude Code **skills** (not an app — no build, no runtime, no test suite).
 They're distributed as plain markdown + a few standalone Python scripts, meant to be
-symlinked into `~/.claude/skills/`:
+symlinked into `~/.agents/skills/` (for Antigravity/AGY CLI via `~/.gemini/config/skills` symlink) and/or `~/.claude/skills/`:
 
-```
+```bash
+# Antigravity / AGY CLI (via ~/.agents/skills -> ~/.gemini/config/skills)
+ln -s ../../ed-orchestation/ed-orchestrate      ~/.agents/skills/ed-orchestrate
+ln -s ../../ed-orchestation/ed-orchestrate-init ~/.agents/skills/ed-orchestrate-init
+
+# Claude Code
 ln -s ../../ed-orchestation/ed-orchestrate      ~/.claude/skills/ed-orchestrate
 ln -s ../../ed-orchestation/ed-orchestrate-init ~/.claude/skills/ed-orchestrate-init
 ```

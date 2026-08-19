@@ -27,9 +27,26 @@ auto-load convention those hosts share with Claude Code — see each skill's
 
 ## Install
 
+### For Antigravity / AGY CLI & Universal Skills (`~/.agents/skills`)
+
+Antigravity discovers global skills from `~/.gemini/config/skills/`. Link Antigravity's config to `~/.agents/skills/` and symlink the repo skills:
+
+```bash
+# 1. Ensure Antigravity's global skills directory points to ~/.agents/skills
+mkdir -p ~/.agents/skills
+ln -s ~/.agents/skills ~/.gemini/config/skills
+
+# 2. Symlink ed-orchestrate skills
+ln -s /path/to/ed-orchestation/ed-orchestrate      ~/.agents/skills/ed-orchestrate
+ln -s /path/to/ed-orchestation/ed-orchestrate-init ~/.agents/skills/ed-orchestrate-init
 ```
-ln -s ../../ed-orchestation/ed-orchestrate      ~/.claude/skills/ed-orchestrate
-ln -s ../../ed-orchestation/ed-orchestrate-init ~/.claude/skills/ed-orchestrate-init
+
+### For Claude Code
+
+```bash
+mkdir -p ~/.claude/skills
+ln -s /path/to/ed-orchestation/ed-orchestrate      ~/.claude/skills/ed-orchestrate
+ln -s /path/to/ed-orchestation/ed-orchestrate-init ~/.claude/skills/ed-orchestrate-init
 ```
 
 `ed-orchestrate-init` requires `ed-orchestrate` installed alongside it — it reuses
