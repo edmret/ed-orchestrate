@@ -48,8 +48,10 @@ To delegate: ask for "hand off <task> to <role>" (fire-and-forget) or "supervise
 ```
 
 `Provider`/`Effort` columns render `—` when the field is `null`. `Fallbacks` lists
-`<harness> (<model>)` pairs comma-separated, or `—` when the role has none; each
-fallback's provider and effort are deliberately omitted to keep one row per role —
+`<harness> (<model>)` pairs comma-separated, or `—` when the role has none. A
+same-harness fallback (no `harness` key in the entry) renders using the role's
+own primary harness, since the two are the same binding target; each fallback's
+provider and effort are deliberately omitted to keep one row per role —
 `agents.json` holds the full binding.
 
 ## Idempotent splice algorithm

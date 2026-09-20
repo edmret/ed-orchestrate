@@ -1,0 +1,379 @@
+#!/usr/bin/env python3
+"""Wire up the optional graph-engineered task-DAG pattern in a target project:
+scaffolds the shared task-memory directory (task/plan/ADR/review templates,
+a knowledge base, and a Map-of-Content index), splices a usage block into
+AGENTS.md, gitignores the memory directory (it's local-machine scratch, not
+committed), and registers it as an Orca worktree-shared directory in
+orca.yaml if that file exists or is requested.
+
+Usage:
+  setup_graph_dag.py <memory-dir> [--agents-md AGENTS.md] [--gitignore .gitignore]
+      [--orca-yaml orca.yaml] [--no-orca-yaml]
+
+Idempotent: safe to re-run. Never overwrites an existing template or note
+file, never duplicates a gitignore line, never duplicates an AGENTS.md block
+or an orca.yaml sharedDirectories entry.
+"""
+import argparse
+import datetime
+import os
+import re
+import sys
+
+BEGIN = "<!-- BEGIN:ed-orchestrate-graph-dag -->"
+END = "<!-- END:ed-orchestrate-graph-dag -->"
+SPLICE_RE = re.compile(re.escape(BEGIN) + r".*?" + re.escape(END), re.DOTALL)
+
+TASK_TEMPLATE = """---
+id: TASK-000
+title: Task Template
+status: backlog # backlog | ready | in-progress | review | done
+assigned_to: coder # any role name in this project's .orchestrate/agents.json
+depends_on: []
+blocks: []
+governed_by: [] # links to ADRs, e.g. [[ADR-000]]
+tags: [task, dag]
+date_created: {date}
+---
+
+## Scope Fence
+
+- **Allowed target files**: list the files/dirs this task may touch.
+- **Forbidden zones**: everything else. If the task needs more, stop and log
+  a candidate follow-up task instead of widening scope here.
+
+## Execution & Diffs Log
+*(sub-agent populates this section upon completing work)*
+
+- **Status Change**: `in-progress` -> `review`
+- **Files Modified**:
+- **Summary of Changes**:
+- **Verification Evidence**:
+- **New Gotchas Discovered**:
+"""
+
+PLAN_TEMPLATE = """---
+id: PLAN-000
+title: Plan Template
+status: draft # draft | active | done
+tags: [plan, dag]
+date_created: {date}
+---
+
+Written by `planner` for one goal: the set of task nodes it produced and how
+they depend on each other. Not itself executed — a map of the DAG below it,
+so the orchestrator (and a human) can see the whole shape at a glance instead
+of opening every task node.
+
+## Goal
+
+One paragraph: what this plan achieves and why.
+
+## Task nodes
+
+List each task node this plan produced, in dependency order:
+
+- [[TASK-001]] — one-line summary — depends_on: none
+- [[TASK-002]] — one-line summary — depends_on: [[TASK-001]]
+
+## Open questions / risks
+
+Anything the planner flagged as ambiguous or risky rather than smoothing over.
+"""
+
+ADR_TEMPLATE = """---
+id: ADR-000
+title: ADR Template
+status: proposed # proposed | accepted | superseded
+supersedes: [] # e.g. [[ADR-000-old-name]]
+tags: [adr]
+date_created: {date}
+---
+
+## Context
+
+What situation forces a decision here — the constraint, the problem, or the
+question, not the answer yet.
+
+## Decision
+
+What was decided, stated plainly.
+
+## Alternatives considered
+
+What else was on the table and why it lost, briefly — enough that a later
+reader doesn't re-propose it without knowing it was already rejected.
+
+## Consequences
+
+What this makes easier, what it makes harder, and what it locks in.
+"""
+
+REVIEW_TEMPLATE = """---
+id: REVIEW-000
+task: TASK-000 # the task node this review is against
+reviewer_role: reviewer # reviewer | code-reviewer
+tags: [review]
+date_created: {date}
+---
+
+Findings only, most severe first — one entry per finding:
+
+- **File/line**:
+- **What's wrong**:
+- **Concrete failure case**:
+- **Suggested fix**:
+
+If nothing worth flagging was found, say so plainly instead of inventing
+filler findings.
+"""
+
+GOTCHAS_SEED = """# Gotchas
+
+Curated by `curator` from finished task reports — recurring mistakes,
+non-obvious fixes, and tricky edge cases worth not rediscovering. Merge new
+entries with an existing one on the same topic rather than duplicating; prune
+entries that no longer apply.
+
+<!-- curator appends dated entries below -->
+"""
+
+PATTERNS_SEED = """# Patterns
+
+Curated by `curator` — canonical approaches this project has settled on, so
+new task nodes reuse them instead of reinventing a slightly different
+version each time. One entry per pattern: what it's for, and a pointer to
+where it's implemented or an [[ADR-000]] that decided it.
+
+<!-- curator appends entries below -->
+"""
+
+INDEX_TEMPLATE = """---
+type: index
+tags: [moc, ed-orchestrate, graph-engineering]
+date_created: {date}
+---
+
+# {memory_dir} — Map of Content
+
+Entry point into this project's shared task graph and knowledge base. One
+line per item, newest first within each section — `curator` keeps this
+current when it runs.
+
+## ADRs
+
+- [[ADR-000-template]]
+
+## Plans
+
+- [[PLAN-000-template]]
+
+## Tasks
+
+- [[TASK-000-template]]
+
+## Reviews
+
+(none yet)
+
+## Knowledge
+
+- [[gotchas]]
+- [[patterns]]
+"""
+
+
+def render_agents_md_block(memory_dir):
+    today = datetime.date.today().isoformat()
+    tasks_dir = f"{memory_dir.rstrip('/')}/tasks/"
+    lines = [
+        BEGIN,
+        (
+            "<!-- Generated by ed-orchestrate-init — do not hand-edit between these\n"
+            "     markers; re-run ed-orchestrate-init instead.\n"
+            f"     Last generated: {today}. -->"
+        ),
+        "",
+        "## Graph-engineered task delegation (ed-orchestrate)",
+        "",
+        (
+            f"This project tracks multi-step work as a task DAG under `{tasks_dir}` "
+            "instead of a flat delegation loop — see "
+            "`ed-orchestrate/references/graph-dag.md` for the full pattern. "
+            f"Start every multi-step goal at `{memory_dir.rstrip('/')}/INDEX.md`."
+        ),
+        "",
+        (
+            f"- The orchestrator delegates to `planner` to produce a plan "
+            f"(`{memory_dir.rstrip('/')}/plans/PLAN-template.md`) and its task-node "
+            f"files (`{tasks_dir}TASK-template.md`)."
+        ),
+        (
+            "- Each task node's frontmatter (`depends_on`, `blocks`, `assigned_to`) "
+            "is the graph — the orchestrator dispatches every `ready` node, not a "
+            "fixed sequence."
+        ),
+        (
+            "- Dispatch sub-agents with a task-node pointer "
+            '("Execute [[TASK-NNN]].") — the sub-agent reads its own node and linked '
+            "context, not a re-explained brief."
+        ),
+        (
+            f"- `reviewer`/`code-reviewer` write findings against "
+            f"`{memory_dir.rstrip('/')}/reviews/REVIEW-template.md`; structural "
+            f"decisions go in `{memory_dir.rstrip('/')}/adrs/ADR-template.md`."
+        ),
+        (
+            "- `integrator` merges parallel task branches and runs the full suite "
+            "once per batch; `curator` periodically folds finished task reports "
+            "into `knowledge/gotchas.md` / `knowledge/patterns.md` and prunes "
+            "stale notes."
+        ),
+        f"- `{memory_dir.rstrip('/')}/` is local-machine scratch — gitignored, not committed.",
+        END,
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def splice(existing_content, block):
+    if BEGIN in existing_content and END in existing_content:
+        new_content, _ = SPLICE_RE.subn(block.rstrip("\n"), existing_content, count=1)
+        return new_content
+    if not existing_content.strip():
+        return block
+    if existing_content.endswith("\n"):
+        return existing_content + "\n" + block
+    return existing_content + "\n\n" + block
+
+
+def write_if_missing(path, content):
+    if os.path.exists(path):
+        return False
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+    return True
+
+
+def scaffold_memory_dir(memory_dir):
+    today = datetime.date.today().isoformat()
+    files = {
+        os.path.join(memory_dir, "INDEX.md"): INDEX_TEMPLATE.format(
+            date=today, memory_dir=memory_dir.rstrip("/")
+        ),
+        os.path.join(memory_dir, "tasks", "TASK-template.md"): TASK_TEMPLATE.format(date=today),
+        os.path.join(memory_dir, "plans", "PLAN-template.md"): PLAN_TEMPLATE.format(date=today),
+        os.path.join(memory_dir, "adrs", "ADR-template.md"): ADR_TEMPLATE.format(date=today),
+        os.path.join(memory_dir, "reviews", "REVIEW-template.md"): REVIEW_TEMPLATE.format(date=today),
+        os.path.join(memory_dir, "knowledge", "gotchas.md"): GOTCHAS_SEED,
+        os.path.join(memory_dir, "knowledge", "patterns.md"): PATTERNS_SEED,
+    }
+    scratch_dir = os.path.join(memory_dir, "scratch")
+    os.makedirs(scratch_dir, exist_ok=True)
+
+    results = []
+    for path, content in files.items():
+        created = write_if_missing(path, content)
+        results.append((path, created))
+    return results
+
+
+def ensure_gitignore(gitignore_path, memory_dir):
+    ignore_line = f"{memory_dir.rstrip('/')}/"
+    existing = ""
+    if os.path.exists(gitignore_path):
+        with open(gitignore_path, "r", encoding="utf-8") as f:
+            existing = f.read()
+    if any(line.strip() == ignore_line for line in existing.splitlines()):
+        return False
+    addition = ("" if existing.endswith("\n") or not existing else "\n") + (
+        "\n" if existing.strip() else ""
+    ) + f"# ed-orchestrate graph-DAG shared task memory (local-machine only)\n{ignore_line}\n"
+    with open(gitignore_path, "w", encoding="utf-8") as f:
+        f.write(existing + addition)
+    return True
+
+
+SHARED_DIRS_RE = re.compile(r"(sharedDirectories:\s*\n(?:\s*-\s*.+\n)*)", re.MULTILINE)
+
+
+def ensure_orca_yaml(orca_yaml_path, memory_dir):
+    """Best-effort, regex-based (no YAML dependency) idempotent insert into an
+    existing `sharedDirectories:` list, or a minimal new file if none exists.
+    Never rewrites unrelated content; on any ambiguity, does nothing and
+    returns a message telling the caller to add the line by hand."""
+    entry = memory_dir.rstrip("/")
+    if not os.path.exists(orca_yaml_path):
+        content = (
+            "# Orca workspace configuration — directories symlinked into every\n"
+            "# Orca-created worktree so they see the same state as the main checkout.\n"
+            "worktree:\n"
+            "  sharedDirectories:\n"
+            "    - node_modules\n"
+            "    - .orchestrate\n"
+            f"    - {entry}\n"
+        )
+        with open(orca_yaml_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        return "created"
+
+    with open(orca_yaml_path, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    if re.search(rf"^\s*-\s*{re.escape(entry)}\s*$", content, re.MULTILINE):
+        return "already-present"
+
+    match = SHARED_DIRS_RE.search(content)
+    if not match:
+        return "manual"
+
+    block = match.group(1)
+    # Match the indent of the list items already there.
+    item_match = re.search(r"^(\s*)-\s*", block, re.MULTILINE)
+    indent = item_match.group(1) if item_match else "    "
+    new_block = block.rstrip("\n") + f"\n{indent}- {entry}\n"
+    content = content[: match.start(1)] + new_block + content[match.end(1) :]
+    with open(orca_yaml_path, "w", encoding="utf-8") as f:
+        f.write(content)
+    return "appended"
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("memory_dir")
+    parser.add_argument("--agents-md", default="AGENTS.md")
+    parser.add_argument("--gitignore", default=".gitignore")
+    parser.add_argument("--orca-yaml", default="orca.yaml")
+    parser.add_argument("--no-orca-yaml", action="store_true")
+    args = parser.parse_args()
+
+    for path, created in scaffold_memory_dir(args.memory_dir):
+        print(f"{'Created' if created else 'Already exists'}: {path}")
+
+    try:
+        with open(args.agents_md, "r", encoding="utf-8") as f:
+            existing = f.read()
+    except FileNotFoundError:
+        existing = ""
+    new_content = splice(existing, render_agents_md_block(args.memory_dir))
+    with open(args.agents_md, "w", encoding="utf-8") as f:
+        f.write(new_content)
+    print(f"Spliced ed-orchestrate-graph-dag block into {args.agents_md}")
+
+    changed = ensure_gitignore(args.gitignore, args.memory_dir)
+    print(f"{'Updated' if changed else 'Already ignored'}: {args.gitignore}")
+
+    if not args.no_orca_yaml:
+        result = ensure_orca_yaml(args.orca_yaml, args.memory_dir)
+        if result == "manual":
+            print(
+                f"WARN: could not confidently locate sharedDirectories in {args.orca_yaml}; "
+                f"add `- {args.memory_dir.rstrip('/')}` under worktree.sharedDirectories by hand.",
+                file=sys.stderr,
+            )
+        else:
+            print(f"orca.yaml: {result}")
+
+
+if __name__ == "__main__":
+    main()

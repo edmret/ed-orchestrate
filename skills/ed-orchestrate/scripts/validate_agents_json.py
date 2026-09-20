@@ -26,7 +26,6 @@ REQUIRED_ROLE_FIELDS = (
     "worktreeStrategy",
     "delegationMode",
 )
-FALLBACK_FIELDS = ("harness", "model", "provider", "effort")
 
 
 def validate(data):
@@ -100,56 +99,73 @@ def validate(data):
                 f"{prefix}.delegationMode: must be one of {sorted(DELEGATION_MODES)}, got {mode!r}"
             )
 
+        cli_flags = role.get("cliFlags")
+        if cli_flags is not None:
+            if not isinstance(cli_flags, list) or not all(isinstance(f, str) for f in cli_flags):
+                errors.append(f"{prefix}.cliFlags: must be an array of strings, or absent")
+
         fallbacks = role.get("fallbacks")
         if fallbacks is not None:
             if not isinstance(fallbacks, list):
                 errors.append(f"{prefix}.fallbacks: must be an array or absent")
             else:
-                seen_harnesses = set()
+                # Keyed by (effective harness, provider) — a fallback entry may
+                # omit `harness` to mean "same harness, different provider/model"
+                # (a resilience-style fallback, e.g. for the reviewer/validator
+                # role: same model family, alternate provider); an explicit
+                # `harness` differing from the role's primary means a
+                # cross-harness override, resolved at delegation time when the
+                # user names a different harness (ed-orchestrate/AGENTS.md
+                # step 2a).
+                seen = set()
                 for i, fb in enumerate(fallbacks):
                     fprefix = f"{prefix}.fallbacks[{i}]"
                     if not isinstance(fb, dict):
                         errors.append(f"{fprefix}: must be an object")
                         continue
 
-                    for field in FALLBACK_FIELDS:
-                        if field not in fb:
-                            errors.append(f"{fprefix}.{field}: missing")
+                    if "model" not in fb:
+                        errors.append(f"{fprefix}.model: missing")
+                    elif not isinstance(fb["model"], str):
+                        errors.append(f"{fprefix}.model: must be a string")
 
                     fb_harness = fb.get("harness")
-                    if fb_harness not in HARNESSES:
+                    if fb_harness is not None and fb_harness not in HARNESSES:
                         errors.append(
-                            f"{fprefix}.harness: must be one of {sorted(HARNESSES)}, got {fb_harness!r}"
+                            f"{fprefix}.harness: must be one of {sorted(HARNESSES)}, or absent, got {fb_harness!r}"
                         )
                     elif fb_harness == harness:
                         errors.append(
-                            f"{fprefix}.harness: must differ from the role's primary harness ({harness!r})"
+                            f"{fprefix}.harness: omit this field instead of repeating the role's "
+                            f"primary harness ({harness!r}) — absent means same-harness fallback"
                         )
-                    elif fb_harness in seen_harnesses:
-                        errors.append(
-                            f"{fprefix}.harness: duplicate fallback harness {fb_harness!r}; "
-                            "each harness may appear at most once"
-                        )
-                    else:
-                        seen_harnesses.add(fb_harness)
 
-                    if "model" in fb and not isinstance(fb["model"], str):
-                        errors.append(f"{fprefix}.model: must be a string")
+                    effective_harness = fb_harness if fb_harness is not None else harness
 
                     fb_provider = fb.get("provider")
                     if fb_provider is not None and not isinstance(fb_provider, str):
                         errors.append(f"{fprefix}.provider: must be a string or null")
-                    if fb_provider is not None and fb_harness != "opencode":
+                    if fb_provider is not None and effective_harness != "opencode":
                         warnings.append(
-                            f"{fprefix}.provider: set to {fb_provider!r} but harness is {fb_harness!r}; "
-                            "provider is only meaningful for harness == opencode in v1"
+                            f"{fprefix}.provider: set to {fb_provider!r} but effective harness is "
+                            f"{effective_harness!r}; provider is only meaningful for harness == opencode in v1"
                         )
 
-                    fb_effort = fb.get("effort")
-                    if fb_effort not in EFFORTS:
+                    dedup_key = (effective_harness, fb_provider)
+                    if dedup_key in seen:
                         errors.append(
-                            f"{fprefix}.effort: must be one of low|medium|high|null, got {fb_effort!r}"
+                            f"{fprefix}: duplicate fallback for (harness={effective_harness!r}, "
+                            f"provider={fb_provider!r}); each (harness, provider) pair may appear at most once"
                         )
+                    else:
+                        seen.add(dedup_key)
+
+                    if "effort" in fb:
+                        fb_effort = fb.get("effort")
+                        if fb_effort not in EFFORTS:
+                            errors.append(
+                                f"{fprefix}.effort: must be one of low|medium|high|null, got {fb_effort!r}"
+                            )
 
     defaults = data.get("defaults")
     if defaults is not None:
