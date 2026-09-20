@@ -5,8 +5,8 @@
 > Mix and match paid subscriptions & frontier models (Claude, Codex, Gemini) with local open-source models (via OpenCode, Ollama, etc.) to assign specialized sub-agent roles. Combine top-tier reasoning where it matters with cost-efficient local execution for routine tasks—giving you infinite team combinations with maximum performance and minimal cost via Orca orchestration.
 
 A pair of skills (for Claude Code, OpenCode, and Antigravity/AGY) for delegating coding sub-tasks to configurable sub-agent
-roles (coder, planner, tester, reviewer, architect, manager, code-reviewer,
-designer, qa-designer, or custom), each pinned to a **harness**
+roles (coder, planner, tester, reviewer, architect, code-reviewer,
+designer, qa-designer, curator, integrator, or custom), each pinned to a **harness**
 (claude, codex, opencode, agy/antigravity, cursor, gemini, droid), a **model**, and
 (for opencode) a **provider**. Delegation itself runs through Orca's `orca-cli` /
 `orchestration` skills — worktrees, terminals, supervised worker loops — not a new

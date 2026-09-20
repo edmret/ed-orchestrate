@@ -4,6 +4,15 @@ Shared core, harness-agnostic. Read the overlay for your host
 ([CLAUDE.md](CLAUDE.md) / [OPENCODE.md](OPENCODE.md) / [AGY.md](AGY.md)) for the one
 or two host-specific differences (mainly step 7's confirmation mechanism).
 
+This skill delegates one task to one role per invocation — it doesn't itself
+hold a multi-step plan. If you (the orchestrator — see
+[references/no-self-code.md](references/no-self-code.md) for what that means)
+are walking a larger task graph across several delegations, see
+[references/graph-dag.md](references/graph-dag.md) for the recommended
+graph-engineered pattern (a `planner`-produced task DAG, scoped task-node
+pointers instead of full context per delegation, and an `integrator` merge
+gate) instead of a flat repeated-delegation loop.
+
 ## 1. Preconditions
 
 Read `.orchestrate/agents.json` in the current project (repo-root-relative).
@@ -59,6 +68,18 @@ disambiguation style step 3 uses for delegation mode; don't invent a new mechani
     `ed-orchestrate-init`'s step 3b, pre-scoped to this role and harness, then resolve
     with the new entry and resume here) / cancel.
 
+## 2b. Same-harness provider fallback
+
+If the invocation constructed in step 6/7 fails for a reason attributable to the
+provider (auth/rate-limit/unavailable error from the harness or provider, not a
+task-content error), and `role.fallbacks` has an entry with no `harness` key
+(i.e. bound to the same harness as the primary), retry once using that entry's
+`model`/`provider` (and `effort` if it overrides the primary). If more than one
+such entry exists, try them in array order. Report which binding actually ran if
+a fallback was used — never silently swap providers without saying so. If none
+succeed, stop and surface the failure; don't fall through to a cross-harness
+fallback here — that's only ever chosen explicitly via step 2a.
+
 ## 3. Resolve delegation mode
 
 Same verb-based disambiguation the `orca-cli`/`orchestration` skills already use:
@@ -103,6 +124,10 @@ for the decision table mapping `(delegationMode, worktreeStrategy, harness)` to 
 orca subsystem to use.
 
 ## 7. Construct → show → confirm → run
+
+Append any `role.cliFlags` entries verbatim to the constructed command — they're
+opaque extra flags for that role's invocation (e.g. a harness/role combo that
+needs `--dangerously-skip-permissions`); never invent or drop them.
 
 Always render the fully resolved command(s) in a fenced code block in your reply
 *before* invoking Bash. See your host overlay for exactly what "confirm" means on

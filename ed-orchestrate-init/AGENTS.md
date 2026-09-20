@@ -37,12 +37,14 @@ the step 2 picker.
 
 ## 2. Pick roles
 
-One multi-select question: `coder` (implementation), `planner` (task breakdown),
-`tester` (test writing/verification), `reviewer` (correctness/security review),
-`architect` (research and structural design), `manager` (task tracking + Linear
-issues), `code-reviewer` (code-quality review), `designer` (UI/UX spec),
-`qa-designer` (visual/UX fidelity check) — plus an "Other" free-text option for
-one additional custom role name.
+One multi-select question: `coder` (implementation), `planner` (task breakdown —
+plans only, never implements), `tester` (test writing/verification), `reviewer`
+(correctness/security review), `architect` (research and structural design),
+`code-reviewer` (code-quality review), `designer` (UI/UX spec), `qa-designer`
+(visual/UX fidelity check), `curator` (prunes/curates shared task and knowledge
+notes), `integrator` (merges parallel task branches, resolves conflicts, runs
+the full suite once per batch) — plus an "Other" free-text option for one
+additional custom role name.
 
 v1 limit: more than one extra custom role in a single pass isn't supported —
 either run `ed-orchestrate-init` again afterward to add another, or hand-edit
@@ -67,55 +69,63 @@ For each selected role:
   drift) plus Other for the exact id; `provider` stays `null`.
 - **Prose exchange** (plain text, not a structured question) — description and
   system prompt seed. For a **built-in** role (`coder`, `planner`, `tester`,
-  `reviewer`, `architect`, `manager`, `code-reviewer`, `designer`,
-  `qa-designer`), show that role's default `description` and `systemPromptSeed`
-  from `ed-orchestrate/references/role-defaults.md` and let the user accept both
-  or type a replacement description; on accept, materialize both defaults
-  verbatim into `agents.json`, and on override use the typed description with
-  the default seed. For a **custom** role, ask for a one-line description as
-  free text (used in the AGENTS.md roster table, and for opencode roles as the
-  generated agent file's `description:`), take the reply verbatim, and set
-  `systemPromptSeed: null` — there is no default for custom roles.
-- **Manager-only: Linear project** (plain text, optional) — if this role is
-  `manager`, ask this *before* the prose exchange above (exact prompt in
-  `references/interview-flow.md`) which Linear project/team key `manager`
-  should track issues under. Blank/skip is valid — `manager` still functions
-  without ticket tracking, tracking tasks as a plain checklist. Store a
-  non-blank answer as `linearProject` on the role object (omit the field if
-  skipped — never write `null`), and resolve the `{{LINEAR_PROJECT_LINE}}`
-  placeholder in the materialized `systemPromptSeed` accordingly before showing
-  the description/seed preview — see `role-defaults.md`'s `manager` section for
-  the exact substitution text.
+  `reviewer`, `architect`, `code-reviewer`, `designer`, `qa-designer`,
+  `curator`, `integrator`), show that role's default `description` and
+  `systemPromptSeed` from `ed-orchestrate/references/role-defaults.md` and let
+  the user accept both or type a replacement description; on accept, materialize
+  both defaults verbatim into `agents.json`, and on override use the typed
+  description with the default seed. For a **custom** role, ask for a one-line
+  description as free text (used in the AGENTS.md roster table, and for
+  opencode roles as the generated agent file's `description:`), take the reply
+  verbatim, and set `systemPromptSeed: null` — there is no default for custom
+  roles.
 
-## 3b. Add or edit a fallback harness
+## 3b. Add or edit a fallback
 
 Entry points: step 1's "Add or edit a fallback harness" option, step 1's
 role-name-argument menu, or step 4's "Edit a specific role" sub-choice. Exact
-question objects in `references/interview-flow.md`.
+question objects in `references/interview-flow.md`. Two fallback kinds share
+this flow — a same-harness provider/model retry binding (`harness` field
+absent in the stored entry) and a cross-harness override (`harness` field
+present, used only when the user names a different harness at delegation time,
+`ed-orchestrate/AGENTS.md` step 2a).
 
 a. Ask which role — skip if already role-scoped by the entry point, or if the
    roster has exactly one role.
-b. Compute the harnesses still available for this role: every harness in the
-   schema enum minus the role's primary harness minus its existing fallback
+b. Ask which kind: **same-harness fallback** (stays on `<role>`'s primary
+   harness, swaps provider/model — e.g. a resilience binding for when the
+   primary provider is unavailable) or **cross-harness fallback** (runs on a
+   different harness entirely, chosen at delegation time).
+c. **Same-harness**: skip straight to (e) — the harness is implicitly the
+   role's primary; no harness question. **Cross-harness**: compute the
+   harnesses still available for this role — every harness in the schema enum
+   minus the role's primary harness minus its existing cross-harness fallback
    harnesses. If that set is empty, say so and offer to replace or remove an
-   existing fallback instead of adding one.
-c. Ask which harness the fallback should use, options built from (b).
-d. **Reuse step 3's structured call B verbatim** for the model, targeting the
-   harness chosen in (c) — including the opencode `provider/model` split. Write
-   the result into the fallback entry, not the role's top-level fields.
-e. **Reuse step 3's call A effort question verbatim**, scoped to this fallback.
-   Don't re-ask harness (already chosen), delegation mode, or worktree strategy —
-   those are role-level and this flow never changes them.
-f. Show the resolved entry alongside the role's current fallbacks. Ask: add it /
-   edit again (loop to (c)) / cancel. When the chosen harness already has an
-   entry, the question is "replace the existing `<harness>` fallback?" instead.
-g. On confirm, append the entry to `role.fallbacks` (creating the array if
-   absent) or replace the entry with the same harness. Validate the whole file
-   before writing, exactly as step 5b does, then write
-   `.orchestrate/agents.json` and re-splice the roster block per step 5c/5d. Do
-   **not** regenerate `.opencode/agent/<role>.md` — it derives from primary
-   fields only, which this flow never touches.
-h. Print the role's updated fallback list.
+   existing fallback instead of adding one. Ask which harness the fallback
+   should use, options built from that set.
+d. (Cross-harness only) note the chosen harness for (e)/(f).
+e. **Reuse step 3's structured call B verbatim** for the model, targeting the
+   effective harness (role's primary for same-harness, or the harness chosen in
+   (c)/(d) for cross-harness) — including the opencode `provider/model` split.
+   Write the result into the fallback entry, not the role's top-level fields.
+   Omit the `harness` key entirely for a same-harness entry; set it for a
+   cross-harness entry.
+f. **Reuse step 3's call A effort question verbatim**, scoped to this fallback,
+   with an added "inherit from primary" option (omit the field, don't write a
+   value) alongside low/medium/high. Don't re-ask harness (already resolved),
+   delegation mode, or worktree strategy — those are role-level and this flow
+   never changes them.
+g. Show the resolved entry alongside the role's current fallbacks. Ask: add it /
+   edit again (loop to (b)) / cancel. When an entry with the same effective
+   `(harness, provider)` pair already exists, the question is "replace the
+   existing fallback for `<provider or harness>`?" instead.
+h. On confirm, append the entry to `role.fallbacks` (creating the array if
+   absent) or replace the matching entry. Validate the whole file before
+   writing, exactly as step 5b does, then write `.orchestrate/agents.json` and
+   re-splice the roster block per step 5c/5d. Do **not** regenerate
+   `.opencode/agent/<role>.md` — it derives from primary fields only, which
+   this flow never touches.
+i. Print the role's updated fallback list.
 
 ## 4. Confirm
 
@@ -150,8 +160,48 @@ e. For every role with `harness == "opencode"`: check whether
    ```
    python3 scripts/render_opencode_agent_file.py .orchestrate/agents.json <role> --out .opencode/agent/<role>.md
    ```
-f. Print a final summary — files written, the roster table — and remind the user
-   they can re-run `ed-orchestrate-init` anytime to add/edit/remove roles.
+f. Only on a **Start fresh** run creating `.orchestrate/agents.json` for the
+   first time (never on an edit-existing/fallback-only pass) — ask (host
+   overlay's structured-question mechanism) whether to also enforce the
+   orchestrator's no-self-code boundary at the permission layer, per
+   `ed-orchestrate/references/no-self-code.md`: **Yes** / **No** /
+   **Explain first**. On yes, ask which path glob(s) to deny Edit/Write on
+   (free text, default suggestion: the project's obvious source directory,
+   e.g. `src/**`), then merge a `permissions.deny` entry for
+   `Edit(<glob>)`/`Write(<glob>)` into the target project's
+   `.claude/settings.json` (create the file if missing; if it already has a
+   `permissions.deny` array, append rather than replace). On "Explain first",
+   show the reference doc's summary, then re-ask. Skip this question entirely
+   (don't ask) if `.claude/settings.json` already has any `permissions.deny`
+   entry — treat that as the project having already made this choice.
+g. Skip this step if the target `AGENTS.md` already contains
+   `<!-- BEGIN:ed-orchestrate-graph-dag -->` — already wired, nothing to ask.
+   Otherwise ask (host overlay's structured-question mechanism) whether to set
+   up graph-engineered task delegation, per
+   `ed-orchestrate/references/graph-dag.md`: **Yes** / **No** /
+   **Explain first**. On "Explain first", show the reference doc's summary,
+   then re-ask. On yes, ask for the shared task-memory directory (free text,
+   default suggestion `.ai-memory`), then run:
+   ```
+   python3 scripts/setup_graph_dag.py <dir> --agents-md AGENTS.md --gitignore .gitignore --orca-yaml orca.yaml
+   ```
+   This creates `<dir>/tasks/TASK-template.md` if missing, splices a
+   `<!-- BEGIN:ed-orchestrate-graph-dag -->` usage block into `AGENTS.md`
+   (idempotent, same splice guarantee as the roster block — never touches
+   content outside its own markers), gitignores `<dir>/` (it's local-machine
+   scratch, never committed), and registers `<dir>` under `orca.yaml`'s
+   `worktree.sharedDirectories` so every Orca worktree sees the same graph
+   (creates a minimal `orca.yaml` if none exists; appends to an existing
+   `sharedDirectories` list in place, or warns to add it by hand if the file's
+   shape can't be matched safely — never guesses at unrelated YAML). If the
+   project doesn't use Orca worktrees at all, still offer this — the shared
+   directory and AGENTS.md block are useful on their own; only the
+   `orca.yaml` step is Orca-specific (skip it with `--no-orca-yaml` if the
+   user says this project isn't Orca-managed).
+h. Print a final summary — files written, the roster table, and whether
+   graph-DAG mode and the no-self-code deny rule were set up — and remind the
+   user they can re-run `ed-orchestrate-init` anytime to add/edit/remove
+   roles or reconfigure either.
 
 **v1 scope note (fallbacks)**: `render_opencode_agent_file.py` reads a role's
 primary fields only and refuses any role whose primary harness isn't `opencode`.

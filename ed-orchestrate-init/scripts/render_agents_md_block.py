@@ -51,7 +51,7 @@ def render_block(data):
         provider = role.get("provider") or "—"
         effort = role.get("effort") or "—"
         fallbacks = ", ".join(
-            f"{fb.get('harness', '—')} ({fb.get('model', '—')})"
+            f"{fb.get('harness') or role.get('harness', '—')} ({fb.get('model', '—')})"
             for fb in (role.get("fallbacks") or [])
         ) or "—"
         lines.append(

@@ -26,8 +26,8 @@ output, not a second source of truth.
       "worktreeStrategy": "new-child",
       "delegationMode": "handoff",
       "fallbacks": [
-        { "harness": "claude", "model": "sonnet",  "provider": null, "effort": "medium" },
-        { "harness": "codex",  "model": "gpt-5.5", "provider": null, "effort": "high" }
+        { "provider": "opencode-go", "model": "deepseek-v4.1-flash" },
+        { "harness": "claude", "model": "sonnet",  "provider": null, "effort": "medium" }
       ]
     },
     "planner": {
@@ -66,35 +66,42 @@ output, not a second source of truth.
 | `.systemPromptSeed` | string or `null` | yes (nullable) | becomes the opencode agent file body, or is prepended to the task prompt for other harnesses. For built-in roles `ed-orchestrate-init` materializes the default from [role-defaults.md](role-defaults.md) at init time; the value is then owned by the project, so editing `role-defaults.md` later never retroactively changes an existing roster |
 | `.worktreeStrategy` | `"current" \| "new-child" \| "new-top-level"` | yes | |
 | `.delegationMode` | `"handoff" \| "supervised"` | yes | default only — explicit user phrasing at delegation time always wins (see `ed-orchestrate/AGENTS.md` step 3) |
-| `.fallbacks` | array of objects, or absent | no | optional alternate harness bindings, used only when the user names a different harness at delegation time (`ed-orchestrate/AGENTS.md` step 2a). Absent and `[]` are equivalent. Never asked during `ed-orchestrate-init`'s fresh-role flow — only via its step 3b |
-| `.fallbacks[].harness` | same enum as `.harness` | yes, per entry | must differ from the role's primary `.harness`, and must be unique across the array (resolution looks entries up by harness) |
-| `.fallbacks[].model` | string | yes, per entry | same semantics as `.model` |
-| `.fallbacks[].provider` | string or `null` | yes, per entry | same semantics as `.provider` — meaningful only when that entry's `harness == "opencode"` |
-| `.fallbacks[].effort` | same enum as `.effort`, or `null` | yes, per entry | same semantics as `.effort` |
-| `.linearProject` | string, or absent | no | optional, meaningful only for the `manager` role; the Linear project/team key `manager` tracks issues under, asked once during `ed-orchestrate-init`'s manager-only prompt at step 3. Absent means `manager` still splits tasks but creates no Linear issues — see [role-defaults.md](role-defaults.md)'s `manager` section for how it's substituted into the materialized `systemPromptSeed` |
+| `.cliFlags` | array of strings, or absent | no | extra raw CLI flags appended to this role's delegation invocation (e.g. `["--dangerously-skip-permissions"]`). Rare — only for a harness/role combo that needs a flag `ed-orchestrate` wouldn't otherwise pass; never asked during the interview, hand-edit and re-validate |
+| `.fallbacks` | array of objects, or absent | no | alternate bindings. Absent and `[]` are equivalent. Never asked during `ed-orchestrate-init`'s fresh-role flow — only via its step 3b. Two shapes, distinguished by whether `harness` is present: |
+| `.fallbacks[].harness` | same enum as `.harness`, or **absent** | no, per entry | **absent** → same-harness fallback: a resilience/retry binding used when the primary `(model, provider)` pair is unavailable — e.g. an alternate opencode provider hosting a compatible model variant (`ed-orchestrate/AGENTS.md` step 2b). **present** → cross-harness override, used only when the user explicitly names a different harness at delegation time (`ed-orchestrate/AGENTS.md` step 2a); must differ from the role's primary `.harness`. Each `(effective harness, provider)` pair — where effective harness is this field or, if absent, the role's primary harness — must be unique across the array |
+| `.fallbacks[].model` | string | yes, per entry | same semantics as `.model` — for a same-harness fallback this is usually a different model id than the primary (the provider-specific variant that alternate provider actually hosts), not a byte-identical copy |
+| `.fallbacks[].provider` | string or `null`, or absent (≡ `null`) | no, per entry | same semantics as `.provider` — meaningful only when the effective harness is `opencode` |
+| `.fallbacks[].effort` | same enum as `.effort`, or absent (≡ inherit primary `.effort`) | no, per entry | same semantics as `.effort` |
 | `defaults.role` | string | no | must reference an existing key under `roles` |
 | `defaults.worktreeStrategy` / `defaults.delegationMode` | same enums as above | no | fallback for a hand-edited role object missing that field (shouldn't happen via `ed-orchestrate-init`, since it always fills every field) |
 
-A fallback entry carries **only** `harness`/`model`/`provider`/`effort`.
-`worktreeStrategy`, `delegationMode`, `tools`, and `systemPromptSeed` stay role-level
-and apply whichever binding resolves — primary or fallback.
+`worktreeStrategy`, `delegationMode`, `tools`, `systemPromptSeed`, and `cliFlags`
+stay role-level and apply whichever binding resolves — primary or fallback.
 
-## Optional field example: `manager`'s `linearProject`
+## Fallback example: same-harness provider retry
 
 ```json
-"manager": {
-  "description": "Turns an existing task list into tracked work items — Linear issues when a project is configured, otherwise a plain checklist.",
-  "harness": "claude",
-  "model": "sonnet",
-  "provider": null,
-  "effort": "medium",
-  "tools": null,
-  "systemPromptSeed": "You are the manager sub-agent. ... Track these tasks as issues in the \"ENG\" Linear project via the orca-linear skill. ...",
+"reviewer": {
+  "description": "Reviews a diff for correctness, security, and regressions before merge.",
+  "harness": "opencode",
+  "model": "qwen3.8-flash",
+  "provider": "nan",
+  "effort": "high",
+  "tools": { "bash": false, "read": true, "edit": false, "glob": true, "grep": true },
+  "systemPromptSeed": null,
   "worktreeStrategy": "current",
   "delegationMode": "supervised",
-  "linearProject": "ENG"
+  "fallbacks": [
+    { "provider": "opencode-go", "model": "qwen3.8-flash-alt" }
+  ]
 }
 ```
+
+Here `reviewer`'s `fallbacks[0]` has no `harness` key, so it's a same-harness
+binding: if the primary `nan` provider is unavailable, retry on `opencode-go`
+with that provider's model-id variant, still on `opencode`. Contrast with a
+cross-harness override entry, which always names an explicit `harness` that
+differs from the role's primary.
 
 Validate any file against this schema with
 `ed-orchestrate/scripts/validate_agents_json.py <path>`.

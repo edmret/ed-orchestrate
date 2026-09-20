@@ -2,11 +2,12 @@
 name: ed-orchestrate
 description: >-
   Delegate a coding sub-task to a configured sub-agent role (coder, planner, tester,
-  reviewer, architect, manager, code-reviewer, designer, qa-designer, or any custom
-  role defined in this project's .orchestrate/agents.json) running on its own
-  harness, model, and provider, via Orca's orca-cli/orchestration CLI. Use whenever
-  the user says "delegate", "hand off", "handoff", "give this to <role>", "have the
-  coder/tester/planner/reviewer/architect/manager/code-reviewer/designer/qa-designer
+  reviewer, architect, code-reviewer, designer, qa-designer, curator, integrator, or
+  any custom role defined in this project's .orchestrate/agents.json) running on its
+  own harness, model, and provider, via Orca's orca-cli/orchestration CLI. Use
+  whenever the user says "delegate", "hand off", "handoff", "give this to <role>",
+  "have the
+  coder/tester/planner/reviewer/architect/code-reviewer/designer/qa-designer/curator/integrator
   do X",
   "spin up a sub-agent", "run this on opencode/codex/agy/gemini/cursor/droid", "supervise
   <role> on X", or names any role defined in this project's agents.json. If no

@@ -37,10 +37,11 @@ options: one per built-in role, each option's description quoted from that role'
   - label: "tester"
   - label: "reviewer"
   - label: "architect"
-  - label: "manager"
   - label: "code-reviewer"
   - label: "designer"
   - label: "qa-designer"
+  - label: "curator"
+  - label: "integrator"
 ```
 ("Other" is always available for one custom role name — v1 supports exactly one
 extra custom role per init pass.)
@@ -142,8 +143,8 @@ harness, `provider` is always `null`.
 
 ## Step 3 — description and seed (free text, not a structured question)
 
-Built-in role (`coder`, `planner`, `tester`, `reviewer`, `architect`, `manager`,
-`code-reviewer`, `designer`, `qa-designer`) — show both defaults from
+Built-in role (`coder`, `planner`, `tester`, `reviewer`, `architect`,
+`code-reviewer`, `designer`, `qa-designer`, `curator`, `integrator`) — show both defaults from
 `ed-orchestrate/references/role-defaults.md` and offer accept-or-override:
 
 > Defaults for `<role>`:
@@ -160,25 +161,7 @@ Custom role — no default exists, so ask as before:
 
 Custom roles get `systemPromptSeed: null`.
 
-## Step 3 — Linear project (manager only, free text, optional)
-
-Only asked when the role being configured is `manager`, and asked **before** the
-description/seed prose exchange above (so that exchange's preview shows the
-already-resolved seed text, never raw template syntax). Plain conversational
-prompt, not a structured question:
-
-> Which Linear project or team key should `manager` track issues under? This is
-> optional — leave it blank and `manager` will still track tasks as a plain
-> checklist, just without creating Linear issues. (Add or change this later by
-> re-running `ed-orchestrate-init manager`.)
-
-Take the reply verbatim (trimmed) as `linearProject`; if left blank, omit the
-field entirely (don't write `null`). Then resolve the `{{LINEAR_PROJECT_LINE}}`
-placeholder in the manager `systemPromptSeed` per
-`ed-orchestrate/references/role-defaults.md`'s `manager` section, using whichever
-of the two fill sentences applies, before showing the description/seed preview.
-
-## Step 3b — add or edit a fallback harness
+## Step 3b — add or edit a fallback
 
 Role picker, asked only when the entry point didn't already scope to one role and
 the roster has more than one role:
@@ -190,9 +173,26 @@ multiSelect: false
 options: one per existing role name, description = that role's current `description`.
 ```
 
-Harness picker — options computed at ask-time as the schema's harness enum minus
-the role's primary harness minus its existing fallback harnesses. If that set is
-empty, skip this question and offer replace/remove of an existing fallback:
+Kind picker, always asked next:
+
+```
+question: "What kind of fallback for <role>?"
+header: "Fallback kind"
+multiSelect: false
+options:
+  - label: "Same-harness (provider retry)"
+    description: "Stays on <role>'s primary harness; swaps provider and model — e.g. a resilience binding for when the primary provider is unavailable."
+  - label: "Cross-harness override"
+    description: "Runs on a different harness entirely, used only when the user names that harness at delegation time."
+```
+
+**Same-harness**: skip the harness picker below entirely, go straight to the
+model question with the effective harness fixed to `<role>`'s primary harness.
+
+**Cross-harness**: harness picker — options computed at ask-time as the schema's
+harness enum minus the role's primary harness minus its existing cross-harness
+fallback harnesses. If that set is empty, skip this question and offer
+replace/remove of an existing fallback instead:
 
 ```
 question: "Which harness should be a fallback for <role>?"
@@ -203,8 +203,15 @@ options: one per harness in the computed set, reusing step 3 call A question 1's
 ```
 
 Model — reuse step 3 call B verbatim (both the opencode-read-config branch and
-the illustrative-examples-plus-Other branch), substituting the harness chosen
-above. Effort — reuse step 3 call A question 2 verbatim.
+the illustrative-examples-plus-Other branch), substituting the effective harness
+(role's primary for same-harness, or the harness just chosen for cross-harness).
+
+Effort — reuse step 3 call A question 2 verbatim, with an added first option:
+
+```
+  - label: "Inherit from primary"
+    description: "Don't set an effort override — use whichever effort the primary binding resolves to."
+```
 
 ```
 question: "Add this fallback for <role>?"
@@ -213,13 +220,14 @@ multiSelect: false
 options:
   - label: "Yes, add it"
   - label: "Edit again"
-    description: "Change the harness, model, or effort before adding."
+    description: "Change the kind, harness, model, or effort before adding."
   - label: "Cancel"
     description: "Discard it; don't modify agents.json."
 ```
 
-When the chosen harness already has an entry, the question text is "Replace the
-existing `<harness>` fallback for `<role>`?" with the same three options.
+When an entry with the same effective `(harness, provider)` pair already
+exists, the question text is "Replace the existing fallback for `<provider or
+harness>` on `<role>`?" with the same three options.
 
 ## Step 4 — confirm
 
@@ -234,3 +242,45 @@ options:
   - label: "Cancel"
     description: "Discard the draft, write nothing."
 ```
+
+## Step 5f — no-self-code enforcement (first-time init only)
+
+Only asked on a fresh `.orchestrate/agents.json` and only if
+`.claude/settings.json` has no existing `permissions.deny` entry:
+
+```
+question: "Enforce the orchestrator's no-self-coding boundary at the permission layer too (not just by convention)?"
+header: "No self-code"
+multiSelect: false
+options:
+  - label: "Yes"
+    description: "Deny this project's orchestrator session Edit/Write on a path you choose (e.g. src/**) via .claude/settings.json."
+  - label: "No"
+    description: "Rely on AGENTS.md's role-boundary convention alone."
+  - label: "Explain first"
+    description: "Show what this does before deciding."
+```
+
+On yes, follow with a plain-text prompt: "Which path glob(s) should be denied
+to the orchestrator (comma-separated)? Default: `src/**`."
+
+## Step 5g — graph-engineered task delegation (skipped if already wired)
+
+Only asked if the target `AGENTS.md` has no
+`<!-- BEGIN:ed-orchestrate-graph-dag -->` block yet:
+
+```
+question: "Set up graph-engineered task delegation for this project?"
+header: "Graph DAG"
+multiSelect: false
+options:
+  - label: "Yes"
+    description: "Planner emits a task DAG in a shared directory; the orchestrator dispatches by graph, not a flat loop. See ed-orchestrate/references/graph-dag.md."
+  - label: "No"
+    description: "Keep delegating one task at a time via ed-orchestrate, no shared task-memory directory."
+  - label: "Explain first"
+    description: "Show what this does before deciding."
+```
+
+On yes, follow with a plain-text prompt: "Which directory should hold the
+shared task graph? Default: `.ai-memory`."
