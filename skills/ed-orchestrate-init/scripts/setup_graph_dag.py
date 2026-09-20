@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 """Wire up the optional graph-engineered task-DAG pattern in a target project:
-creates the shared task-memory directory + task-node template, splices a
-usage block into AGENTS.md, gitignores the memory directory (it's
-local-machine scratch, not committed), and registers it as an Orca
-worktree-shared directory in orca.yaml if that file exists or is requested.
+scaffolds the shared task-memory directory (task/plan/ADR/review templates,
+a knowledge base, and a Map-of-Content index), splices a usage block into
+AGENTS.md, gitignores the memory directory (it's local-machine scratch, not
+committed), and registers it as an Orca worktree-shared directory in
+orca.yaml if that file exists or is requested.
 
 Usage:
   setup_graph_dag.py <memory-dir> [--agents-md AGENTS.md] [--gitignore .gitignore]
       [--orca-yaml orca.yaml] [--no-orca-yaml]
 
-Idempotent: safe to re-run. Never overwrites an existing TASK-template.md,
-never duplicates a gitignore line, never duplicates an AGENTS.md block or an
-orca.yaml sharedDirectories entry.
+Idempotent: safe to re-run. Never overwrites an existing template or note
+file, never duplicates a gitignore line, never duplicates an AGENTS.md block
+or an orca.yaml sharedDirectories entry.
 """
 import argparse
 import datetime
@@ -30,7 +31,7 @@ status: backlog # backlog | ready | in-progress | review | done
 assigned_to: coder # any role name in this project's .orchestrate/agents.json
 depends_on: []
 blocks: []
-governed_by: []
+governed_by: [] # links to ADRs, e.g. [[ADR-000]]
 tags: [task, dag]
 date_created: {date}
 ---
@@ -51,6 +52,136 @@ date_created: {date}
 - **New Gotchas Discovered**:
 """
 
+PLAN_TEMPLATE = """---
+id: PLAN-000
+title: Plan Template
+status: draft # draft | active | done
+tags: [plan, dag]
+date_created: {date}
+---
+
+Written by `planner` for one goal: the set of task nodes it produced and how
+they depend on each other. Not itself executed — a map of the DAG below it,
+so the orchestrator (and a human) can see the whole shape at a glance instead
+of opening every task node.
+
+## Goal
+
+One paragraph: what this plan achieves and why.
+
+## Task nodes
+
+List each task node this plan produced, in dependency order:
+
+- [[TASK-001]] — one-line summary — depends_on: none
+- [[TASK-002]] — one-line summary — depends_on: [[TASK-001]]
+
+## Open questions / risks
+
+Anything the planner flagged as ambiguous or risky rather than smoothing over.
+"""
+
+ADR_TEMPLATE = """---
+id: ADR-000
+title: ADR Template
+status: proposed # proposed | accepted | superseded
+supersedes: [] # e.g. [[ADR-000-old-name]]
+tags: [adr]
+date_created: {date}
+---
+
+## Context
+
+What situation forces a decision here — the constraint, the problem, or the
+question, not the answer yet.
+
+## Decision
+
+What was decided, stated plainly.
+
+## Alternatives considered
+
+What else was on the table and why it lost, briefly — enough that a later
+reader doesn't re-propose it without knowing it was already rejected.
+
+## Consequences
+
+What this makes easier, what it makes harder, and what it locks in.
+"""
+
+REVIEW_TEMPLATE = """---
+id: REVIEW-000
+task: TASK-000 # the task node this review is against
+reviewer_role: reviewer # reviewer | code-reviewer
+tags: [review]
+date_created: {date}
+---
+
+Findings only, most severe first — one entry per finding:
+
+- **File/line**:
+- **What's wrong**:
+- **Concrete failure case**:
+- **Suggested fix**:
+
+If nothing worth flagging was found, say so plainly instead of inventing
+filler findings.
+"""
+
+GOTCHAS_SEED = """# Gotchas
+
+Curated by `curator` from finished task reports — recurring mistakes,
+non-obvious fixes, and tricky edge cases worth not rediscovering. Merge new
+entries with an existing one on the same topic rather than duplicating; prune
+entries that no longer apply.
+
+<!-- curator appends dated entries below -->
+"""
+
+PATTERNS_SEED = """# Patterns
+
+Curated by `curator` — canonical approaches this project has settled on, so
+new task nodes reuse them instead of reinventing a slightly different
+version each time. One entry per pattern: what it's for, and a pointer to
+where it's implemented or an [[ADR-000]] that decided it.
+
+<!-- curator appends entries below -->
+"""
+
+INDEX_TEMPLATE = """---
+type: index
+tags: [moc, ed-orchestrate, graph-engineering]
+date_created: {date}
+---
+
+# {memory_dir} — Map of Content
+
+Entry point into this project's shared task graph and knowledge base. One
+line per item, newest first within each section — `curator` keeps this
+current when it runs.
+
+## ADRs
+
+- [[ADR-000-template]]
+
+## Plans
+
+- [[PLAN-000-template]]
+
+## Tasks
+
+- [[TASK-000-template]]
+
+## Reviews
+
+(none yet)
+
+## Knowledge
+
+- [[gotchas]]
+- [[patterns]]
+"""
+
 
 def render_agents_md_block(memory_dir):
     today = datetime.date.today().isoformat()
@@ -68,12 +199,14 @@ def render_agents_md_block(memory_dir):
         (
             f"This project tracks multi-step work as a task DAG under `{tasks_dir}` "
             "instead of a flat delegation loop — see "
-            "`ed-orchestrate/references/graph-dag.md` for the full pattern."
+            "`ed-orchestrate/references/graph-dag.md` for the full pattern. "
+            f"Start every multi-step goal at `{memory_dir.rstrip('/')}/INDEX.md`."
         ),
         "",
         (
-            f"- The orchestrator delegates to `planner` to produce task-node files in "
-            f"`{tasks_dir}` (template: `{tasks_dir}TASK-template.md`)."
+            f"- The orchestrator delegates to `planner` to produce a plan "
+            f"(`{memory_dir.rstrip('/')}/plans/PLAN-template.md`) and its task-node "
+            f"files (`{tasks_dir}TASK-template.md`)."
         ),
         (
             "- Each task node's frontmatter (`depends_on`, `blocks`, `assigned_to`) "
@@ -86,9 +219,15 @@ def render_agents_md_block(memory_dir):
             "context, not a re-explained brief."
         ),
         (
+            f"- `reviewer`/`code-reviewer` write findings against "
+            f"`{memory_dir.rstrip('/')}/reviews/REVIEW-template.md`; structural "
+            f"decisions go in `{memory_dir.rstrip('/')}/adrs/ADR-template.md`."
+        ),
+        (
             "- `integrator` merges parallel task branches and runs the full suite "
             "once per batch; `curator` periodically folds finished task reports "
-            "into shared knowledge notes and prunes stale ones."
+            "into `knowledge/gotchas.md` / `knowledge/patterns.md` and prunes "
+            "stale notes."
         ),
         f"- `{memory_dir.rstrip('/')}/` is local-machine scratch — gitignored, not committed.",
         END,
@@ -107,15 +246,36 @@ def splice(existing_content, block):
     return existing_content + "\n\n" + block
 
 
-def ensure_tasks_dir_and_template(memory_dir):
-    tasks_dir = os.path.join(memory_dir, "tasks")
-    os.makedirs(tasks_dir, exist_ok=True)
-    template_path = os.path.join(tasks_dir, "TASK-template.md")
-    if not os.path.exists(template_path):
-        with open(template_path, "w", encoding="utf-8") as f:
-            f.write(TASK_TEMPLATE.format(date=datetime.date.today().isoformat()))
-        return template_path, True
-    return template_path, False
+def write_if_missing(path, content):
+    if os.path.exists(path):
+        return False
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+    return True
+
+
+def scaffold_memory_dir(memory_dir):
+    today = datetime.date.today().isoformat()
+    files = {
+        os.path.join(memory_dir, "INDEX.md"): INDEX_TEMPLATE.format(
+            date=today, memory_dir=memory_dir.rstrip("/")
+        ),
+        os.path.join(memory_dir, "tasks", "TASK-template.md"): TASK_TEMPLATE.format(date=today),
+        os.path.join(memory_dir, "plans", "PLAN-template.md"): PLAN_TEMPLATE.format(date=today),
+        os.path.join(memory_dir, "adrs", "ADR-template.md"): ADR_TEMPLATE.format(date=today),
+        os.path.join(memory_dir, "reviews", "REVIEW-template.md"): REVIEW_TEMPLATE.format(date=today),
+        os.path.join(memory_dir, "knowledge", "gotchas.md"): GOTCHAS_SEED,
+        os.path.join(memory_dir, "knowledge", "patterns.md"): PATTERNS_SEED,
+    }
+    scratch_dir = os.path.join(memory_dir, "scratch")
+    os.makedirs(scratch_dir, exist_ok=True)
+
+    results = []
+    for path, content in files.items():
+        created = write_if_missing(path, content)
+        results.append((path, created))
+    return results
 
 
 def ensure_gitignore(gitignore_path, memory_dir):
@@ -187,8 +347,8 @@ def main():
     parser.add_argument("--no-orca-yaml", action="store_true")
     args = parser.parse_args()
 
-    template_path, created = ensure_tasks_dir_and_template(args.memory_dir)
-    print(f"{'Created' if created else 'Already exists'}: {template_path}")
+    for path, created in scaffold_memory_dir(args.memory_dir):
+        print(f"{'Created' if created else 'Already exists'}: {path}")
 
     try:
         with open(args.agents_md, "r", encoding="utf-8") as f:

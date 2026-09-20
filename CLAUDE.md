@@ -4,18 +4,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-A pair of Claude Code **skills** (not an app — no build, no runtime, no test suite).
-They're distributed as plain markdown + a few standalone Python scripts, meant to be
-symlinked into `~/.agents/skills/` (for Antigravity/AGY CLI via `~/.gemini/config/skills` symlink) and/or `~/.claude/skills/`:
+A pair of Claude Code **skills** living under `skills/` (not an app — no build, no
+runtime, no test suite). Plain markdown + a few standalone Python scripts. The
+`skills/` layout (rather than skills at the repo root) is deliberate — it's what the
+[skills.sh](https://www.skills.sh) `npx skills` CLI's discovery expects
+(`skills/<name>/SKILL.md`), so this repo installs with `npx skills add
+edmret/ed-multi-ai` from anywhere, in addition to the manual symlink method below.
+See [README.md](README.md) for both install paths.
+
+Manual install — symlink into `~/.agents/skills/` (for Antigravity/AGY CLI via
+`~/.gemini/config/skills` symlink) and/or `~/.claude/skills/`:
 
 ```bash
 # Antigravity / AGY CLI (via ~/.agents/skills -> ~/.gemini/config/skills)
-ln -s ../../ed-orchestation/ed-orchestrate      ~/.agents/skills/ed-orchestrate
-ln -s ../../ed-orchestation/ed-orchestrate-init ~/.agents/skills/ed-orchestrate-init
+ln -s ../../ed-orchestation/skills/ed-orchestrate      ~/.agents/skills/ed-orchestrate
+ln -s ../../ed-orchestation/skills/ed-orchestrate-init ~/.agents/skills/ed-orchestrate-init
 
 # Claude Code
-ln -s ../../ed-orchestation/ed-orchestrate      ~/.claude/skills/ed-orchestrate
-ln -s ../../ed-orchestation/ed-orchestrate-init ~/.claude/skills/ed-orchestrate-init
+ln -s ../../ed-orchestation/skills/ed-orchestrate      ~/.claude/skills/ed-orchestrate
+ln -s ../../ed-orchestation/skills/ed-orchestrate-init ~/.claude/skills/ed-orchestrate-init
 ```
 
 - **`ed-orchestrate`** — delegates a coding sub-task to a configured sub-agent role
@@ -27,18 +34,21 @@ ln -s ../../ed-orchestation/ed-orchestrate-init ~/.claude/skills/ed-orchestrate-
   and splice a roster block into the target project's `AGENTS.md`.
 
 `ed-orchestrate-init` depends on `ed-orchestrate` being installed alongside it — it
-reuses `ed-orchestrate/scripts/validate_agents_json.py` as the single source of truth
-for config validation rather than duplicating that logic.
+reuses `skills/ed-orchestrate/scripts/validate_agents_json.py` as the single source of truth
+for config validation rather than duplicating that logic. Both `npx skills add` and
+the manual symlinks above install them side by side, so this holds either way.
 
 ## Running the scripts
 
-No package manager, no deps beyond the stdlib. Run directly with `python3`:
+No package manager, no deps beyond the stdlib. Run directly with `python3`
+(paths below are relative to the repo root):
 
 ```
-python3 ed-orchestrate/scripts/validate_agents_json.py <path-to-agents.json>
-python3 ed-orchestrate-init/scripts/render_agents_md_block.py <agents.json> [--project-name NAME] [--splice <AGENTS.md>]
-python3 ed-orchestrate-init/scripts/render_opencode_agent_file.py <agents.json> <role-name> --out <path>
-python3 ed-orchestrate-init/scripts/setup_graph_dag.py <memory-dir> [--agents-md AGENTS.md] [--gitignore .gitignore] [--orca-yaml orca.yaml] [--no-orca-yaml]
+python3 skills/ed-orchestrate/scripts/validate_agents_json.py <path-to-agents.json>
+python3 skills/ed-orchestrate-init/scripts/render_agents_md_block.py <agents.json> [--project-name NAME] [--splice <AGENTS.md>]
+python3 skills/ed-orchestrate-init/scripts/render_opencode_agent_file.py <agents.json> <role-name> --out <path>
+python3 skills/ed-orchestrate-init/scripts/setup_graph_dag.py <memory-dir> [--agents-md AGENTS.md] [--gitignore .gitignore] [--orca-yaml orca.yaml] [--no-orca-yaml]
+python3 skills/ed-orchestrate-init/scripts/ensure_claude_md_import.py <CLAUDE.md path> [--import-path AGENTS.md]
 ```
 
 There's no test suite in this repo — validate changes to a script by running it
@@ -74,7 +84,7 @@ the behavior genuinely differs per host.
 
 ### Never hardcode the `orca` CLI surface
 
-`ed-orchestrate/AGENTS.md` explicitly forbids hardcoding `orca` subcommand syntax
+`skills/ed-orchestrate/AGENTS.md` explicitly forbids hardcoding `orca` subcommand syntax
 anywhere in this repo. The real CLI surface is always fetched live at delegation
 time via `orca skills get orca-cli` (and `orca skills get orchestration` for
 supervised runs) so these skills can't drift from the binary that actually runs the
@@ -86,27 +96,27 @@ they were canonical.
 `ed-orchestrate-init` writes `.orchestrate/agents.json` in the *target*
 project (not this repo) and derives the `AGENTS.md` roster block and, for
 `opencode`-harness roles, a native `.opencode/agent/<role>.md` file, from it.
-`ed-orchestrate/scripts/validate_agents_json.py` defines the schema in code — see
-`ed-orchestrate/references/agents-json-schema.md` for the human-readable version.
+`skills/ed-orchestrate/scripts/validate_agents_json.py` defines the schema in code — see
+`skills/ed-orchestrate/references/agents-json-schema.md` for the human-readable version.
 Required per-role fields: `description`, `harness`, `model`, `provider`, `effort`,
 `tools`, `systemPromptSeed`, `worktreeStrategy`, `delegationMode`. Optional:
 `fallbacks` — an array of alternate bindings, either same-harness (no `harness`
 key: a provider/model retry pair for when the primary provider is unavailable)
 or cross-harness (explicit `harness` key, used only when a delegation names that
-harness — `ed-orchestrate/AGENTS.md` steps 2a/2b); `cliFlags` — extra raw CLI
+harness — `skills/ed-orchestrate/AGENTS.md` steps 2a/2b); `cliFlags` — extra raw CLI
 flags for that role's invocation.
 
 Built-in roles (`coder`/`planner`/`tester`/`reviewer`/`architect`/
 `code-reviewer`/`designer`/`qa-designer`/`curator`/`integrator`) get their
 default `description` and `systemPromptSeed` from
-`ed-orchestrate/references/role-defaults.md`, materialized verbatim into the project's
+`skills/ed-orchestrate/references/role-defaults.md`, materialized verbatim into the project's
 `agents.json` at init time. That file is the single source of truth for those
 defaults — the interview's role-picker option text quotes it too. `planner`
 only plans (produces a task breakdown; never implements) — the persistent,
 per-session coordinator is the orchestrator, not a role in this roster (see
-`ed-orchestrate/references/graph-dag.md`).
+`skills/ed-orchestrate/references/graph-dag.md`).
 
-Per `ed-orchestrate/references/harness-model-support.md`: `--model`/`--effort` only
+Per `skills/ed-orchestrate/references/harness-model-support.md`: `--model`/`--effort` only
 thread through the live `orca` invocation for `claude`, `codex`, `cursor`. For
 `opencode`, `agy`, `gemini`, `droid`, model selection instead goes through a
 per-harness reference file or a generated agent file — never assume a uniform
@@ -114,8 +124,21 @@ per-harness reference file or a generated agent file — never assume a uniform
 
 The `AGENTS.md` roster block written into a target project is spliced idempotently
 between `<!-- BEGIN:ed-orchestrate-roster -->` / `<!-- END:ed-orchestrate-roster -->`
-markers (`ed-orchestrate-init/scripts/render_agents_md_block.py`) — content outside
+markers (`skills/ed-orchestrate-init/scripts/render_agents_md_block.py`) — content outside
 that span must never be touched by regeneration.
+
+### `ed-orchestrate-init` always fixes the CLAUDE.md/AGENTS.md shadow bug
+
+Claude Code auto-loads `AGENTS.md` at session start only when **no** `CLAUDE.md`
+exists anywhere on the path from the working directory up. Any target project with
+its own `CLAUDE.md` — common, and never in this skill's control — silently shadows
+the `AGENTS.md` roster/graph-DAG blocks entirely, so nothing written there is ever
+read automatically; a user would have to manually tell Claude to read `AGENTS.md`
+every session. `ed-orchestrate-init` step 5's `d2` fixes this unconditionally (not
+an opt-in question) by splicing a small `@AGENTS.md` import into the target
+`CLAUDE.md` (`skills/ed-orchestrate-init/scripts/ensure_claude_md_import.py`,
+creating the file if missing) — Claude Code resolves `@path` imports regardless of
+the shadowing rule. Preserve this step; don't make it optional.
 
 ### v1 scope limits (intentional, not gaps to "fix")
 

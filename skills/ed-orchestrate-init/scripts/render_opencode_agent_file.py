@@ -16,12 +16,12 @@ def render(role):
     model = f"{role.get('provider')}/{role.get('model')}"
     description = role.get("description", "")
     seed = role.get("systemPromptSeed") or (
-        f"You are the {role.get('_name', 'role')} subagent for this project."
+        f"You are the {role.get('_name', 'role')} agent for this project."
     )
 
     lines = ["---"]
     lines.append(f"description: {description}")
-    lines.append("mode: subagent")
+    lines.append("mode: primary")
     lines.append(f"model: {model}")
     lines.append("tools:")
     for key in ("bash", "read", "edit", "glob", "grep"):

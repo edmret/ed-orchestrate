@@ -153,6 +153,21 @@ d. Splice the roster block into the target project's `AGENTS.md`:
    (Creates `AGENTS.md` if it doesn't exist.) See
    `ed-orchestrate/references/agents-md-block-format.md` for the exact format and
    the idempotent splice guarantee.
+d2. **Always** (not gated by any question — this is a correctness fix, not an
+   opt-in feature): ensure the target project's `CLAUDE.md` imports
+   `AGENTS.md`, so Claude Code sessions actually load what step d just wrote.
+   Claude Code auto-loads `AGENTS.md` on its own only when no `CLAUDE.md`
+   exists anywhere on the path; any project with its own `CLAUDE.md` (which is
+   common, and outside this skill's control) silently shadows it otherwise —
+   the roster and any graph-DAG block would sit there unread every session
+   until the user manually pointed Claude at it. Run:
+   ```
+   python3 scripts/ensure_claude_md_import.py CLAUDE.md
+   ```
+   Idempotent — creates `CLAUDE.md` with just the import if missing, splices a
+   small `<!-- BEGIN:ed-orchestrate-claude-import -->` block containing
+   `@AGENTS.md` into an existing one, never touches any other content in the
+   file.
 e. For every role with `harness == "opencode"`: check whether
    `.opencode/agent/<role>.md` already exists. If so, ask before overwriting —
    don't clobber a hand-maintained file (this project convention already exists
@@ -185,11 +200,16 @@ g. Skip this step if the target `AGENTS.md` already contains
    ```
    python3 scripts/setup_graph_dag.py <dir> --agents-md AGENTS.md --gitignore .gitignore --orca-yaml orca.yaml
    ```
-   This creates `<dir>/tasks/TASK-template.md` if missing, splices a
-   `<!-- BEGIN:ed-orchestrate-graph-dag -->` usage block into `AGENTS.md`
-   (idempotent, same splice guarantee as the roster block — never touches
-   content outside its own markers), gitignores `<dir>/` (it's local-machine
-   scratch, never committed), and registers `<dir>` under `orca.yaml`'s
+   This scaffolds `<dir>` with the templates the roles need to actually
+   produce task-DAG artifacts — `INDEX.md` (Map of Content), `tasks/TASK-template.md`,
+   `plans/PLAN-template.md` (planner's DAG overview), `adrs/ADR-template.md`,
+   `reviews/REVIEW-template.md`, and seed `knowledge/gotchas.md` /
+   `knowledge/patterns.md` for `curator` — none overwritten if already present
+   — splices a `<!-- BEGIN:ed-orchestrate-graph-dag -->` usage block into
+   `AGENTS.md` (idempotent, same splice guarantee as the roster block — never
+   touches content outside its own markers), gitignores `<dir>/` (it's
+   local-machine scratch, never committed), and registers `<dir>` under
+   `orca.yaml`'s
    `worktree.sharedDirectories` so every Orca worktree sees the same graph
    (creates a minimal `orca.yaml` if none exists; appends to an existing
    `sharedDirectories` list in place, or warns to add it by hand if the file's
@@ -198,10 +218,11 @@ g. Skip this step if the target `AGENTS.md` already contains
    directory and AGENTS.md block are useful on their own; only the
    `orca.yaml` step is Orca-specific (skip it with `--no-orca-yaml` if the
    user says this project isn't Orca-managed).
-h. Print a final summary — files written, the roster table, and whether
-   graph-DAG mode and the no-self-code deny rule were set up — and remind the
-   user they can re-run `ed-orchestrate-init` anytime to add/edit/remove
-   roles or reconfigure either.
+h. Print a final summary — files written, the roster table, whether `CLAUDE.md`
+   already imported `AGENTS.md` or needed the fix, and whether graph-DAG mode
+   and the no-self-code deny rule were set up — and remind the user they can
+   re-run `ed-orchestrate-init` anytime to add/edit/remove roles or
+   reconfigure either.
 
 **v1 scope note (fallbacks)**: `render_opencode_agent_file.py` reads a role's
 primary fields only and refuses any role whose primary harness isn't `opencode`.

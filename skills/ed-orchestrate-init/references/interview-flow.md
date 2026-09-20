@@ -243,6 +243,13 @@ options:
     description: "Discard the draft, write nothing."
 ```
 
+## Step 5d2 — CLAUDE.md import (always, no question asked)
+
+Not a structured question — no confirmation needed, this is a correctness
+fix. Just run `ensure_claude_md_import.py CLAUDE.md` per
+`ed-orchestrate-init/AGENTS.md` step 5's `d2`, and mention what it did (or
+that it was already wired) in the step-5h summary.
+
 ## Step 5f — no-self-code enforcement (first-time init only)
 
 Only asked on a fresh `.orchestrate/agents.json` and only if

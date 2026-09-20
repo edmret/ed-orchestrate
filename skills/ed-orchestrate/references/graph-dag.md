@@ -18,10 +18,12 @@ Instead of a loop, the orchestrator walks a Directed Acyclic Graph of task
 nodes:
 
 1. **`planner` produces the DAG once.** Delegate the whole goal to `planner`
-   (see `role-defaults.md` — planner plans, never implements). It writes one
-   markdown file per task node into this project's shared task-memory
-   directory (commonly `.ai-memory/tasks/`, but any directory the project
-   already uses for this works — `ed-orchestrate` doesn't mandate a path).
+   (see `role-defaults.md` — planner plans, never implements). It writes a
+   plan overview (`<dir>/plans/PLAN-<n>.md` — the DAG's table of contents:
+   goal, task list in dependency order, open risks) plus one markdown file per
+   task node into `<dir>/tasks/` (commonly `.ai-memory/`, but any directory
+   the project already uses for this works — `ed-orchestrate` doesn't mandate
+   a path). `<dir>/INDEX.md` is the whole graph's entry point — start there.
 2. **Each task node encodes its own graph edges** in YAML frontmatter:
 
    ```yaml
@@ -74,8 +76,14 @@ outcomes mechanically rather than parsing prose:
 ```
 
 Structural rationale ("why this approach") belongs in a linked decision record
-(`governed_by`) if the project keeps one, not inline in every task report;
-tactical gotchas belong in the shared knowledge notes `curator` maintains.
+(`governed_by`, i.e. `<dir>/adrs/ADR-<n>.md`) if the project keeps one, not
+inline in every task report; tactical gotchas belong in
+`<dir>/knowledge/gotchas.md`, and settled canonical approaches in
+`<dir>/knowledge/patterns.md` — both curated by `curator`, not hand-appended
+by every role. `reviewer`/`code-reviewer` write findings against
+`<dir>/reviews/REVIEW-<n>.md` rather than only inline in the task node, when a
+standalone review record is useful (e.g. a `supervised` review gate someone
+else needs to read later).
 
 ## Escalation / scope fence
 
@@ -91,8 +99,11 @@ not the sub-agent unilaterally.
 already wired) by running `ed-orchestrate-init/scripts/setup_graph_dag.py
 <dir>`, which idempotently:
 
-- creates `<dir>/tasks/TASK-template.md` (the frontmatter shape shown above)
-  if it doesn't already exist — never overwrites a hand-edited template;
+- scaffolds `<dir>` with every template a role needs to actually produce
+  DAG artifacts — `INDEX.md` (Map of Content), `tasks/TASK-template.md`,
+  `plans/PLAN-template.md`, `adrs/ADR-template.md`,
+  `reviews/REVIEW-template.md`, and seed `knowledge/gotchas.md` /
+  `knowledge/patterns.md` — never overwriting a file that already exists;
 - splices a `<!-- BEGIN:ed-orchestrate-graph-dag -->` … `<!-- END -->` usage
   block into the target `AGENTS.md`, same idempotent splice guarantee as the
   roster block (`agents-md-block-format.md`) — re-running only replaces that
@@ -108,6 +119,18 @@ already wired) by running `ed-orchestrate-init/scripts/setup_graph_dag.py
 `<dir>` itself is never fixed to `.ai-memory/` — that's just the default
 suggestion; any project-chosen path works, since nothing else in this repo
 hardcodes it.
+
+### Why this needs `AGENTS.md` *and* `CLAUDE.md`
+
+Step 5's `d2` (always run, not gated behind any question) splices a small
+`@AGENTS.md` import into the target project's `CLAUDE.md` via
+`ed-orchestrate-init/scripts/ensure_claude_md_import.py`. This isn't
+graph-DAG-specific — it's what makes the roster block *and* this block
+actually load every session. Claude Code only auto-reads `AGENTS.md` when no
+`CLAUDE.md` exists on the path at all; any project with its own `CLAUDE.md`
+(outside this skill's control) silently shadows both blocks, so without the
+import a user would have to manually tell Claude to read `AGENTS.md` every
+session — the graph would sit there unused.
 
 ## Relationship to `.orchestrate/agents.json`
 

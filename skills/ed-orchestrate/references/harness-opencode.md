@@ -13,7 +13,7 @@ invocation.
 ```markdown
 ---
 description: <role.description>
-mode: subagent
+mode: primary
 model: <provider>/<model>
 tools:
   bash: true
@@ -24,6 +24,14 @@ tools:
 ---
 <role.systemPromptSeed>
 ```
+
+`mode: primary` is required — opencode's CLI (`opencode run --agent <name>`)
+refuses to run a `subagent`-mode agent as a top-level session and silently
+falls back to its own default agent/model instead, which would otherwise
+discard the role's configured harness/model without any hard error. Confirmed
+against `opencode run --agent <role>`: it prints `agent "<role>" is a
+subagent, not a primary agent. Falling back to default agent` and the
+delegation quietly runs on the wrong model.
 
 `model:` is a `<provider>/<model>` string, e.g. `nan/qwen3.6`. `ed-orchestrate-init`
 auto-generates this file for every `opencode`-harness role (see

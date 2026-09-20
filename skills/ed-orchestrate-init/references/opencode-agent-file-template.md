@@ -9,7 +9,7 @@ schema explanation; the template itself is:
 ```markdown
 ---
 description: <role.description>
-mode: subagent
+mode: primary
 model: <role.provider>/<role.model>
 tools:
   bash: <role.tools.bash, default true if role.tools is null>
@@ -18,5 +18,5 @@ tools:
   glob: <role.tools.glob, default true if role.tools is null>
   grep: <role.tools.grep, default true if role.tools is null>
 ---
-<role.systemPromptSeed, or a one-line fallback "You are the <role> subagent for this project." if null>
+<role.systemPromptSeed, or a one-line fallback "You are the <role> agent for this project." if null>
 ```
