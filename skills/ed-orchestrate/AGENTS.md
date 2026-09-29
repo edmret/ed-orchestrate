@@ -13,6 +13,8 @@ graph-engineered pattern (a `planner`-produced task DAG, scoped task-node
 pointers instead of full context per delegation, and an `integrator` merge
 gate) instead of a flat repeated-delegation loop.
 
+Diagrams of this flow: [references/flow-diagrams.md](references/flow-diagrams.md).
+
 ## 0. Route first (only if the project has a router)
 
 If `.orchestrate/bin/laya-route` exists, the orchestrator routes each new
