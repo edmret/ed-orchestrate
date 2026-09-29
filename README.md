@@ -101,13 +101,47 @@ For a multi-step feature spanning several roles (possibly parallel work),
 `ed-orchestrate-init` can also wire up a Directed Acyclic Graph of task nodes instead
 of a flat "delegate one task, then the next" loop: `planner` emits task-node
 markdown files into a shared directory (default `.ai-memory/`), the orchestrator
-dispatches every `ready` node rather than a fixed sequence, `integrator` merges
-parallel branches and runs the full suite once per batch, and `curator`
-periodically folds finished task reports into shared knowledge notes. See
-`skills/ed-orchestrate/references/graph-dag.md`. Opt in during
-`ed-orchestrate-init` (it also gitignores that directory and registers it as an
-Orca-worktree-shared directory in `orca.yaml` for you) — it's off by default,
-nothing about it is required.
+dispatches every `ready` node rather than a fixed sequence, and each batch ends in
+ONE integration node — `integrator` merges and runs the full suite + e2e once, then
+`reviewer` ∥ `code-reviewer` review the combined batch diff once (not per task),
+followed by one fix-pass and a re-gate. Coders and testers run only unit tests
+scoped to their own files. `curator` periodically folds finished task reports into
+per-area gotcha files. See `skills/ed-orchestrate/references/graph-dag.md`.
+
+Init scaffolds every template this needs — task node, batch-integration node,
+UI-iteration ledger, plan, ADR, review, a gotchas index with seed `00-core.md` /
+`harness.md` (cross-harness traps already hit in earlier projects), and patterns —
+gitignores the directory and registers it as an Orca-worktree-shared directory in
+`orca.yaml`. It's off by default; re-running init on a wired project refreshes the
+AGENTS.md block and adds newer templates without touching existing files.
+
+### Laya router: small changes skip the planner
+
+With graph mode on, init can also install `.orchestrate/bin/laya-route`, a
+stdlib-only router every harness can call. It asks a local Laya server atomic
+yes/no questions, combines them deterministically with path facts (path facts
+always win; Laya down → path facts alone), and picks a lane: `graph` (the full
+DAG), `fast` (one coder, one task node), `ui-iterate` (one long-lived coder for a
+run of visual tweaks, skipped tests/e2e logged as debt and closed at the end by a
+planner-built debt-closure batch), or `ask`. Decisions and outcomes are logged as a
+fine-tuning dataset. See `skills/ed-orchestrate/references/laya-routing.md`.
+
+## Always on: every harness actually reads the setup, and can write
+
+Three things init fixes without asking, because each silently breaks delegation
+on a new project:
+
+- **Claude Code** only auto-loads `AGENTS.md` when there's no `CLAUDE.md` — init
+  splices an `@AGENTS.md` import into `CLAUDE.md`.
+- **gemini-cli / agy** read only `GEMINI.md` — init adds `AGENTS.md` to
+  `.gemini/settings.json`'s `context.fileName` and makes `.gemini/GEMINI.md` a thin
+  pointer (orchestrator guard + agy headless notes) instead of a drifting copy.
+- **Worker writes** — opencode rejects writes through the worktree-shared symlinks
+  unless `opencode.json` allows `external_directory` (init sets it); headless agy
+  denies all file I/O without `--dangerously-skip-permissions` (init proposes it as
+  the role's `cliFlags`, the validator warns when missing) and needs per-project
+  read/write entries in its user-global settings (init offers to add them for the
+  repo and its Orca worktree dir).
 
 ## Optional: enforce "orchestrator doesn't self-code" at the permission layer
 
@@ -119,4 +153,6 @@ prompt convention by default. `ed-orchestrate-init` can also add a
 `Write(src/**)`) so the orchestrator's own session is denied those writes at the
 tool layer, not just by instruction — see
 `skills/ed-orchestrate/references/no-self-code.md`. Also opt-in, asked once on a
-fresh init.
+fresh init. If a writing role runs on Claude Code, init puts the rule in
+`.claude/settings.local.json` instead — the tracked `settings.json` is checked out
+into every worktree and would block that worker too.

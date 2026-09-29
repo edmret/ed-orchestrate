@@ -11,6 +11,7 @@ import re
 import sys
 
 ROLE_NAME_RE = re.compile(r"^[a-z][a-z0-9-]*$")
+AGY_HEADLESS_FLAG = "--dangerously-skip-permissions"
 HARNESSES = {"claude", "codex", "opencode", "agy", "cursor", "gemini", "droid"}
 EFFORTS = {"low", "medium", "high", None}
 WORKTREE_STRATEGIES = {"current", "new-child", "new-top-level"}
@@ -103,6 +104,12 @@ def validate(data):
         if cli_flags is not None:
             if not isinstance(cli_flags, list) or not all(isinstance(f, str) for f in cli_flags):
                 errors.append(f"{prefix}.cliFlags: must be an array of strings, or absent")
+        role_flags = cli_flags if isinstance(cli_flags, list) else []
+        if harness == "agy" and AGY_HEADLESS_FLAG not in role_flags:
+            warnings.append(
+                f"{prefix}.cliFlags: harness is 'agy' but {AGY_HEADLESS_FLAG!r} is missing — "
+                "headless agy denies every file read/write without it (references/harness-agy.md)"
+            )
 
         fallbacks = role.get("fallbacks")
         if fallbacks is not None:
@@ -159,6 +166,23 @@ def validate(data):
                         )
                     else:
                         seen.add(dedup_key)
+
+                    fb_flags = fb.get("cliFlags")
+                    if fb_flags is not None and (
+                        not isinstance(fb_flags, list) or not all(isinstance(f, str) for f in fb_flags)
+                    ):
+                        errors.append(f"{fprefix}.cliFlags: must be an array of strings, or absent")
+                    # Cross-harness bindings use only their own cliFlags (the role's
+                    # belong to its primary harness); same-harness ones inherit them.
+                    if fb_flags is None:
+                        eff_flags = role_flags if fb_harness is None else []
+                    else:
+                        eff_flags = fb_flags if isinstance(fb_flags, list) else []
+                    if effective_harness == "agy" and AGY_HEADLESS_FLAG not in eff_flags:
+                        warnings.append(
+                            f"{fprefix}.cliFlags: effective harness is 'agy' but {AGY_HEADLESS_FLAG!r} "
+                            "is missing — headless agy denies every file read/write without it"
+                        )
 
                     if "effort" in fb:
                         fb_effort = fb.get("effort")

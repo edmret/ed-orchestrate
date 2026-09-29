@@ -21,7 +21,7 @@ def render(role):
 
     lines = ["---"]
     lines.append(f"description: {description}")
-    lines.append("mode: primary")
+    lines.append("mode: all")
     lines.append(f"model: {model}")
     lines.append("tools:")
     for key in ("bash", "read", "edit", "glob", "grep"):

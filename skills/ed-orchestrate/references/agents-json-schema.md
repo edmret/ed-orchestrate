@@ -66,17 +66,19 @@ output, not a second source of truth.
 | `.systemPromptSeed` | string or `null` | yes (nullable) | becomes the opencode agent file body, or is prepended to the task prompt for other harnesses. For built-in roles `ed-orchestrate-init` materializes the default from [role-defaults.md](role-defaults.md) at init time; the value is then owned by the project, so editing `role-defaults.md` later never retroactively changes an existing roster |
 | `.worktreeStrategy` | `"current" \| "new-child" \| "new-top-level"` | yes | |
 | `.delegationMode` | `"handoff" \| "supervised"` | yes | default only — explicit user phrasing at delegation time always wins (see `ed-orchestrate/AGENTS.md` step 3) |
-| `.cliFlags` | array of strings, or absent | no | extra raw CLI flags appended to this role's delegation invocation (e.g. `["--dangerously-skip-permissions"]`). Rare — only for a harness/role combo that needs a flag `ed-orchestrate` wouldn't otherwise pass; never asked during the interview, hand-edit and re-validate |
+| `.cliFlags` | array of strings, or absent | no | extra raw CLI flags appended to this role's delegation invocation on its **primary** harness (and same-harness fallbacks). Main use: `["--dangerously-skip-permissions"]` for an `agy` role — headless agy denies every file read/write without it ([harness-agy.md](harness-agy.md)); `ed-orchestrate-init` proposes it for agy roles and the validator warns when an agy binding lacks it |
 | `.fallbacks` | array of objects, or absent | no | alternate bindings. Absent and `[]` are equivalent. Never asked during `ed-orchestrate-init`'s fresh-role flow — only via its step 3b. Two shapes, distinguished by whether `harness` is present: |
 | `.fallbacks[].harness` | same enum as `.harness`, or **absent** | no, per entry | **absent** → same-harness fallback: a resilience/retry binding used when the primary `(model, provider)` pair is unavailable — e.g. an alternate opencode provider hosting a compatible model variant (`ed-orchestrate/AGENTS.md` step 2b). **present** → cross-harness override, used only when the user explicitly names a different harness at delegation time (`ed-orchestrate/AGENTS.md` step 2a); must differ from the role's primary `.harness`. Each `(effective harness, provider)` pair — where effective harness is this field or, if absent, the role's primary harness — must be unique across the array |
 | `.fallbacks[].model` | string | yes, per entry | same semantics as `.model` — for a same-harness fallback this is usually a different model id than the primary (the provider-specific variant that alternate provider actually hosts), not a byte-identical copy |
 | `.fallbacks[].provider` | string or `null`, or absent (≡ `null`) | no, per entry | same semantics as `.provider` — meaningful only when the effective harness is `opencode` |
+| `.fallbacks[].cliFlags` | array of strings, or absent | no, per entry | flags for this binding. **Absent** → a same-harness entry inherits the role's `.cliFlags`; a cross-harness entry gets **none** (the role's flags belong to its primary harness — e.g. an agy-only flag must not reach opencode). A cross-harness entry to `agy` therefore needs its own `["--dangerously-skip-permissions"]` |
 | `.fallbacks[].effort` | same enum as `.effort`, or absent (≡ inherit primary `.effort`) | no, per entry | same semantics as `.effort` |
 | `defaults.role` | string | no | must reference an existing key under `roles` |
 | `defaults.worktreeStrategy` / `defaults.delegationMode` | same enums as above | no | fallback for a hand-edited role object missing that field (shouldn't happen via `ed-orchestrate-init`, since it always fills every field) |
 
-`worktreeStrategy`, `delegationMode`, `tools`, `systemPromptSeed`, and `cliFlags`
-stay role-level and apply whichever binding resolves — primary or fallback.
+`worktreeStrategy`, `delegationMode`, `tools`, and `systemPromptSeed` stay
+role-level and apply whichever binding resolves — primary or fallback.
+`cliFlags` is binding-scoped as described above.
 
 ## Fallback example: same-harness provider retry
 

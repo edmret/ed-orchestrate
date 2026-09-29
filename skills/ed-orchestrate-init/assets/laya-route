@@ -1,0 +1,277 @@
+#!/usr/bin/env python3
+"""laya-route — harness-neutral lane/TDD/context router backed by Laya.
+
+Installed by ed-orchestrate-init (setup_graph_dag.py --laya). This is the
+project's own copy from then on: tune QUESTIONS / LAYER_RULES / *_CONTEXT below
+to this repo's paths and gotcha area files, guided by the outcome log.
+
+Laya (local `laya-serve`, default http://localhost:8000) answers ATOMIC yes/no
+questions about a change request. A deterministic combiner below turns those
+answers plus path facts into a decision. Path facts always override Laya. If Laya
+is unreachable the path facts decide alone and anything uncertain goes to `graph`.
+
+Why atomic questions: measured on 10 real-shaped requests, broad questions
+("fast or graph?") scored 6-7/10 with every miss unsafe (graph -> fast);
+single-aspect `noul` questions scored 9-10/10.
+
+Usage (any harness, plain shell):
+  laya-route --request-en "Make the totals bar sticky" [--request "<original>"]
+             [--files a.ts,b.html | --git-diff [BASE]] [--task TASK-123]
+  laya-route outcome --id <decision-id> --value correct|wrong-lane|wrong-tdd|wrong-context [--note "..."]
+
+Prints one JSON object: {id, lane, tdd, context, answers, facts, reason, laya}.
+lane: graph | fast | ui-iterate | ask     tdd: first | defer
+Every decision is appended to <memory-dir>/laya/decisions.jsonl (fine-tune dataset).
+"""
+import argparse
+import datetime as dt
+import json
+import os
+import re
+import subprocess
+import sys
+import urllib.error
+import urllib.request
+import uuid
+
+MEMORY_DIR = ".ai-memory"  # rewritten at install time to the project's shared task-memory dir
+LAYA_URL = os.environ.get("LAYA_URL", "http://localhost:8000")
+TIMEOUT_S = float(os.environ.get("LAYA_TIMEOUT", "30"))  # CPU inference slows sharply under machine load
+RETRIES = int(os.environ.get("LAYA_RETRIES", "1"))
+GOTCHAS = MEMORY_DIR + "/knowledge/gotchas"
+HI, LO = 0.65, 0.35  # uncertainty band for deciding questions
+
+# ---- PROJECT TUNING --------------------------------------------------------
+# Atomic questions. Keep each one single-aspect: broad ones measured unreliable.
+# Add a domain question (e.g. "Does this request involve the billing screens?")
+# only together with a TOPIC_CONTEXT entry for it.
+QUESTIONS = {
+    "visual_only": "Is this request only about appearance: layout, styling, spacing, colors, text labels or markup?",
+    "pure_logic": "Does this request create or change a calculation, formatting, parsing or validation function?",
+    "state_or_api": "Does this request involve a data store, HTTP calls, backend API or mock server?",
+    "navigation": "Does this request add or change routes, navigation or route guards?",
+    "auth_rbac": "Does this request involve login, authentication, roles or permissions?",
+    "forms": "Does this request involve form fields, form validation or user input handling?",
+    "e2e_mock": "Does this request involve e2e test mocks, fake backend data or test fixtures?",
+    "testing": "Is this request mainly about writing or fixing automated tests?",
+}
+# Questions whose confident "yes" forces the graph lane.
+DECIDING = ("state_or_api", "navigation", "auth_rbac")
+
+# Topic answer -> gotcha area files (under GOTCHAS) an agent should read.
+# Only files that actually exist are emitted, so listing a not-yet-created area is safe.
+TOPIC_CONTEXT = {
+    "visual_only": ["ui.md"],
+    "forms": ["forms.md"],
+    "state_or_api": ["state-api.md"],
+    "navigation": ["routing.md"],
+    "auth_rbac": ["routing.md"],
+    "e2e_mock": ["testing.md"],
+    "testing": ["testing.md"],
+}
+
+# Path conventions -> layer. First match wins, so the risky layers come first
+# (a store's spec is still a store change).
+LAYER_RULES = [
+    ("navigation", re.compile(r"(\.routes?\.[jt]sx?$|/routes?/|router|guard|resolver|middleware|permission)", re.I)),
+    ("state_api", re.compile(r"(\.store\.|\.service\.|/stores?/|/services?/|/msw/|/mocks?/|/api/|gateway|adapter|interceptor|repository|\.port\.|/generated/|/migrations?/)", re.I)),
+    ("test", re.compile(r"(\.spec\.|\.test\.|^e2e/|/e2e/|/__tests__/|^tests?/)", re.I)),
+    ("logic", re.compile(r"(/utils?/|\.utils?\.|\.helpers?\.|\.pipe\.|parser|validator|formatter)", re.I)),
+    ("styles", re.compile(r"\.(s?css|sass|less)$", re.I)),
+    ("template", re.compile(r"\.(html|vue|svelte)$", re.I)),
+    ("component", re.compile(r"(\.component\.[jt]s$|\.[jt]sx$)", re.I)),
+    ("config", re.compile(r"(^\.github/|^tools/|\.json$|\.ya?ml$|\.toml$|\.config\.|tsconfig|Dockerfile)", re.I)),
+]
+LAYER_CONTEXT = {
+    "navigation": ["routing.md"],
+    "state_api": ["state-api.md"],
+    "test": ["testing.md"],
+    "logic": ["testing.md"],
+    "styles": ["ui.md"],
+    "template": ["ui.md"],
+    "component": ["ui.md"],
+}
+GRAPH_LAYERS = {"navigation", "state_api", "config"}
+TDD_LAYERS = {"logic", "state_api", "navigation"}
+VISUAL_LAYERS = {"styles", "template", "component"}
+# ---- END PROJECT TUNING ----------------------------------------------------
+
+
+def repo_root():
+    try:
+        return subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True,
+                                       stderr=subprocess.DEVNULL).strip()
+    except Exception:
+        return os.getcwd()
+
+
+def git_diff_files(base):
+    cmd = ["git", "diff", "--name-only"] + ([base] if base else ["HEAD"])
+    files = subprocess.check_output(cmd, text=True).split()
+    files += subprocess.check_output(["git", "ls-files", "--others", "--exclude-standard"], text=True).split()
+    return sorted(set(files))
+
+
+def layer_of(path):
+    for layer, rx in LAYER_RULES:
+        if rx.search(path):
+            return layer
+    return "other"
+
+
+def ask_laya(state):
+    body = json.dumps({"state": state, "model": "english",
+                       "questions": {k: {"type": "noul", "instructions": v} for k, v in QUESTIONS.items()}})
+    req = urllib.request.Request(LAYA_URL.rstrip("/") + "/v1/systemone", body.encode(),
+                                 {"content-type": "application/json"})
+    token = os.environ.get("LAYA_TOKEN")
+    if token:
+        req.add_header("authorization", "Bearer " + token)
+    with urllib.request.urlopen(req, timeout=TIMEOUT_S) as r:
+        res = json.load(r)
+    return {k: round(float(res["answers"][k]["noul"]), 3) for k in QUESTIONS}
+
+
+def decide(answers, layers, file_count, root="."):
+    reasons = []
+    ls = set(layers.values())
+    graph_layers = ls & GRAPH_LAYERS
+
+    # Lane
+    if graph_layers:
+        lane = "graph"
+        reasons.append("path facts: %s layer touched" % ",".join(sorted(graph_layers)))
+    elif file_count >= 4:
+        lane = "graph"
+        reasons.append("path facts: %d files" % file_count)
+    elif answers is None:
+        if ls and ls <= VISUAL_LAYERS:
+            lane = "ui-iterate"
+            reasons.append("laya down; all touched files are visual")
+        elif ls and ls <= (VISUAL_LAYERS | {"logic", "test"}):
+            lane = "fast"
+            reasons.append("laya down; only visual/logic/test files")
+        else:
+            lane = "graph"
+            reasons.append("laya down and no decisive path facts -> safe default")
+    else:
+        hot = [k for k in DECIDING if answers[k] > HI]
+        unsure = [k for k in DECIDING if LO <= answers[k] <= HI]
+        if hot:
+            lane = "graph"
+            reasons.append("laya: %s" % ",".join(hot))
+        elif unsure and not ls:
+            lane = "ask"
+            reasons.append("laya unsure on %s and no files to settle it" % ",".join(unsure))
+        elif unsure:
+            lane = "graph" if ls - (VISUAL_LAYERS | {"logic", "test"}) else "fast"
+            reasons.append("laya unsure on %s; path facts settle -> %s" % (",".join(unsure), lane))
+        elif answers["pure_logic"] <= 0.5 and (not ls or ls <= VISUAL_LAYERS):
+            # No logic, no graph signal, nothing but visual files: iterate on the UI.
+            lane = "ui-iterate"
+            reasons.append("laya: no logic/state/nav (visual_only=%.2f)" % answers["visual_only"])
+        else:
+            lane = "fast"
+            reasons.append("small non-visual change")
+
+    # TDD: logic always test-first; defer only when purely visual.
+    logic_hit = bool(ls & TDD_LAYERS) or (answers is not None and answers["pure_logic"] > 0.5)
+    tdd = "first" if logic_hit or lane == "graph" else "defer"
+    if lane == "ui-iterate" and answers is not None and answers["pure_logic"] > 0.5:
+        tdd = "first"
+
+    # Context manifest. Lane and files decide context; Laya scores only decide the
+    # lane. A graph lane legitimately widens context from topic answers; a fast /
+    # ui-iterate lane stays minimal (topics only when there are no files to go on) —
+    # the outcome log showed high state/API scores on a pure UI tweak dragging in
+    # graph-wide context otherwise.
+    ctx = ["00-core.md"]
+    if answers is not None and (lane in ("graph", "ask") or not ls):
+        for k, files in TOPIC_CONTEXT.items():
+            if answers[k] > 0.5:
+                ctx += files
+    for layer in ls:
+        ctx += LAYER_CONTEXT.get(layer, [])
+    if tdd == "first":
+        ctx.append("testing.md")
+    seen, context = set(), []
+    for f in ctx:
+        if f in seen:
+            continue
+        seen.add(f)
+        # 00-core is always named; area files only once they exist (created on first gotcha).
+        if f == "00-core.md" or os.path.exists(os.path.join(root, GOTCHAS, f)):
+            context.append("%s/%s" % (GOTCHAS, f))
+    return lane, tdd, context, "; ".join(reasons)
+
+
+def log(root, record):
+    path = os.path.join(root, MEMORY_DIR, "laya", "decisions.jsonl")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "a") as fh:
+        fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def cmd_route(a):
+    root = repo_root()
+    files = [f.strip() for f in a.files.split(",") if f.strip()] if a.files else []
+    if a.git_diff is not None:
+        files = git_diff_files(a.git_diff or None)
+    layers = {f: layer_of(f) for f in files}
+    state = {"request_en": a.request_en}
+    if files:
+        state["files"] = files[:40]
+    laya_status, answers = "ok", None
+    for attempt in range(RETRIES + 1):
+        try:
+            answers = ask_laya(state)
+            if attempt:
+                laya_status = "ok (after %d retry)" % attempt
+            break
+        except (urllib.error.URLError, OSError, KeyError, ValueError) as e:
+            laya_status = "unavailable: %s" % (getattr(e, "reason", None) or e)
+            # Retry only a timeout (busy CPU); a refused connection means Laya is really down.
+            if "timed out" not in str(laya_status):
+                break
+    lane, tdd, context, reason = decide(answers, layers, len(files), root)
+    out = {
+        "id": uuid.uuid4().hex[:12],
+        "lane": lane,
+        "tdd": tdd,
+        "context": context,
+        "answers": answers,
+        "facts": {"file_count": len(files), "layers": sorted(set(layers.values()))},
+        "reason": reason,
+        "laya": laya_status,
+    }
+    if not a.no_log:
+        log(root, dict(out, kind="decision", ts=dt.datetime.now().isoformat(timespec="seconds"),
+                       task=a.task, request_en=a.request_en, request=a.request, files=files))
+    print(json.dumps(out, ensure_ascii=False, indent=2))
+
+
+def cmd_outcome(a):
+    log(repo_root(), {"kind": "outcome", "id": a.id, "value": a.value, "note": a.note,
+                      "ts": dt.datetime.now().isoformat(timespec="seconds")})
+    print(json.dumps({"id": a.id, "value": a.value, "logged": True}))
+
+
+def main(argv):
+    if argv and argv[0] == "outcome":
+        p = argparse.ArgumentParser(prog="laya-route outcome")
+        p.add_argument("--id", required=True)
+        p.add_argument("--value", required=True, choices=["correct", "wrong-lane", "wrong-tdd", "wrong-context"])
+        p.add_argument("--note")
+        return cmd_outcome(p.parse_args(argv[1:]))
+    p = argparse.ArgumentParser(prog="laya-route", description=__doc__.split("\n\n")[0])
+    p.add_argument("--request-en", required=True, help="the request, in English (pins Laya's english checkpoint)")
+    p.add_argument("--request", help="original wording, logged only")
+    p.add_argument("--files", help="comma-separated paths expected/known to change")
+    p.add_argument("--git-diff", nargs="?", const="", help="use changed+untracked files vs BASE (default HEAD)")
+    p.add_argument("--task", help="task/ITER id, logged only")
+    p.add_argument("--no-log", action="store_true")
+    return cmd_route(p.parse_args(argv))
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

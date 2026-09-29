@@ -7,11 +7,16 @@ description: >-
   per role which harness (claude, codex, opencode, agy/antigravity, gemini,
   cursor, droid), model, and (for opencode) provider to use. Writes
   .orchestrate/agents.json and updates the delimited
-  ed-orchestrate-roster block in this project's AGENTS.md. Use whenever the user
+  ed-orchestrate-roster block in this project's AGENTS.md; optionally scaffolds
+  graph-DAG task memory (task/ADR/plan/review/UI-iteration templates) and the
+  Laya lane router, and wires CLAUDE.md/GEMINI.md and harness write permissions
+  so every harness reads the setup and can write. Use whenever the user
   says "set up ed-orchestrate", "configure sub-agents", "ed-orchestrate-init",
   "init ed-orchestrate", "add a sub-agent role", "edit the <role> role", "change
   which model the <role> uses", "add a fallback harness for <role>", or wants to
-  (re)configure who does what in this project's delegation roster. Passing a role
+  (re)configure who does what in this project's delegation roster, or says
+  "set up laya routing", "refresh the orchestration templates", or "workers
+  can't write" in a new project. Passing a role
   name as the argument jumps straight to editing that role's primary config or
   its fallback harness bindings. Prefer this over hand-editing agents.json when the user is choosing
   roles/harnesses/models interactively; re-running it is safe and idempotent.

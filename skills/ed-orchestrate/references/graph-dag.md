@@ -32,6 +32,10 @@ nodes:
    title: Short task title
    status: backlog # backlog | ready | in-progress | review | done
    assigned_to: coder # any role name in this project's roster
+   lane: graph # graph | fast | ui-iterate (laya-routing.md, when installed)
+   tdd: first # first | defer
+   review: batch # batch | early — early = risky/foundational, isolated review
+   context: [] # the ONLY knowledge files the agent reads at cold start
    depends_on: [] # task ids that must be done first
    blocks: [] # task ids this one blocks
    governed_by: [] # links to relevant ADRs/decisions, if this project keeps them
@@ -49,16 +53,39 @@ nodes:
    rather than the orchestrator re-explaining the whole feature in the
    delegation prompt. This is the token-efficiency payoff of the graph over a
    loop: context is pulled on demand, not repeated per delegation.
-5. **`integrator` is the fan-in node.** When parallel branches (parallel
-   coder task nodes in separate worktrees) finish, delegate the merge to
-   `integrator` rather than merging them yourself — it reconciles conflicts,
-   checks semantic consistency, and runs the full test suite exactly once for
-   the combined result (see `role-defaults.md`). Don't re-run the full suite
-   per individual task node; that's `integrator`'s job, once per batch.
+   **Cold-start budget**: the worker reads its node, the node's `governed_by`
+   ADRs, `<dir>/knowledge/gotchas/00-core.md`, and ONLY the files in the node's
+   `context:` — never `INDEX.md` (that's for planner/architect/curator) or the
+   whole gotchas set "just in case".
+5. **The batch ends in ONE integration node — and that's where review
+   happens.** The planner ends every batch with a single
+   `TASK-…-batch-integration` node (template scaffolded by init). Order:
+   `integrator` merges the parallel branches and runs the full gate
+   (typecheck + build, then lint, the full unit suite, then e2e) → the
+   orchestrator dispatches `reviewer` ∥ `code-reviewer` **once** over the
+   combined batch diff → triage (accepted → ONE `coder` fix-pass; waived →
+   recorded with reason) → `integrator` re-gates → nodes `done`.
+   - Coder/tester nodes verify with **unit tests scoped to their own files
+     only**, never e2e, never the full suite; say so in every dispatch prompt,
+     because sub-agents default to the full suite "to be safe".
+   - **No per-task or per-wave review.** Waves move nodes to `review` and the
+     next wave proceeds. Only nodes the planner flags `review: early` (auth,
+     shared state, public API, DI tokens, cross-cutting infra) get an isolated
+     review before dependents build on them. This cuts review cost from
+     2 reviewers × N tasks to 2 per batch, without dropping the gate: a coder's
+     own green tests are self-graded and never count as review.
+   - **Workers never run git.** The orchestrator branches and commits each
+     green wave (commits are rollback points); `integrator` merges.
 6. **`curator` runs periodically, not per-task.** After a batch of nodes
-   completes, optionally delegate to `curator` to fold gotchas and outcomes
-   from finished task reports into the project's shared knowledge notes and
-   prune stale ones — a hygiene pass, not part of the critical path.
+   completes, delegate to `curator` to fold gotchas and outcomes from finished
+   task reports into the per-area `knowledge/gotchas/<area>.md` files (keeping
+   `00-core.md` ≤ 8 KB) and prune stale ones — a hygiene pass, not part of the
+   critical path, but one that compounds when skipped.
+7. **Small changes skip the graph.** With the Laya router installed
+   ([laya-routing.md](laya-routing.md)), every request is routed first:
+   `fast` (one coder, one node, no planner) and `ui-iterate` (one long-lived
+   coder, a debt ledger closed by a debt-closure DAG at the end) keep small
+   changes cheap while still ending in the same integration phase.
 
 ## Task node report
 
@@ -77,13 +104,11 @@ outcomes mechanically rather than parsing prose:
 
 Structural rationale ("why this approach") belongs in a linked decision record
 (`governed_by`, i.e. `<dir>/adrs/ADR-<n>.md`) if the project keeps one, not
-inline in every task report; tactical gotchas belong in
-`<dir>/knowledge/gotchas.md`, and settled canonical approaches in
-`<dir>/knowledge/patterns.md` — both curated by `curator`, not hand-appended
-by every role. `reviewer`/`code-reviewer` write findings against
-`<dir>/reviews/REVIEW-<n>.md` rather than only inline in the task node, when a
-standalone review record is useful (e.g. a `supervised` review gate someone
-else needs to read later).
+inline in every task report; tactical gotchas belong in the
+matching `<dir>/knowledge/gotchas/<area>.md` (appended newest first by whoever
+hit the trap; `gotchas.md` is only the area index), and settled canonical approaches in
+`<dir>/knowledge/patterns.md` — both consolidated by `curator`. `reviewer`/`code-reviewer` write their one-per-batch findings to
+`<dir>/reviews/REVIEW-<n>.md`, linked from the batch-integration node.
 
 ## Escalation / scope fence
 
@@ -95,26 +120,40 @@ not the sub-agent unilaterally.
 
 ## Wiring it up via `ed-orchestrate-init`
 
-`ed-orchestrate-init` step 5g offers to set this up automatically (skipped if
-already wired) by running `ed-orchestrate-init/scripts/setup_graph_dag.py
+`ed-orchestrate-init` step 5g offers to set this up automatically (and, if
+already wired, silently refreshes it) by running `ed-orchestrate-init/scripts/setup_graph_dag.py
 <dir>`, which idempotently:
 
 - scaffolds `<dir>` with every template a role needs to actually produce
   DAG artifacts — `INDEX.md` (Map of Content), `tasks/TASK-template.md`,
+  `tasks/TASK-batch-integration-template.md`, `tasks/ITER-template.md`,
   `plans/PLAN-template.md`, `adrs/ADR-template.md`,
-  `reviews/REVIEW-template.md`, and seed `knowledge/gotchas.md` /
+  `reviews/REVIEW-template.md`, the `knowledge/gotchas.md` area index with
+  seed `knowledge/gotchas/00-core.md` and `knowledge/gotchas/harness.md`
+  (cross-harness operating traps already hit in earlier projects), and
   `knowledge/patterns.md` — never overwriting a file that already exists;
-- splices a `<!-- BEGIN:ed-orchestrate-graph-dag -->` … `<!-- END -->` usage
-  block into the target `AGENTS.md`, same idempotent splice guarantee as the
+- with `--laya`, installs the Laya router at `.orchestrate/bin/laya-route`
+  plus `<dir>/laya/README.md` ([laya-routing.md](laya-routing.md));
+- splices a `<!-- BEGIN:ed-orchestrate-graph-dag -->` … `<!-- END -->` block
+  into the target `AGENTS.md` — the "are you the orchestrator?" guard, worker
+  rules, the orchestrator workflow above, and (when Laya is installed) the
+  lanes — same idempotent splice guarantee as the
   roster block (`agents-md-block-format.md`) — re-running only replaces that
   span, never touches content outside it;
-- appends `<dir>/` to `.gitignore` if not already present — the task graph is
-  local-machine scratch, not committed;
+- appends `<dir>` to `.gitignore` if not already present — the task graph is
+  local-machine scratch, not committed. No trailing slash: in a worktree the
+  dir is a symlink, which a `dir/` pattern doesn't match;
 - registers `<dir>` under `orca.yaml`'s `worktree.sharedDirectories` (creating
   a minimal `orca.yaml` if none exists, or appending to an existing
   `sharedDirectories` list in place) so every Orca child worktree sees the
   same graph without a commit/pull cycle. If the file's shape can't be
   matched safely, the script warns instead of guessing.
+
+Re-running `ed-orchestrate-init` on an already-wired project re-runs the
+script: it refreshes the AGENTS.md block and adds any templates introduced
+since (existing files untouched), so projects pick up workflow improvements
+without a hand-port. A pre-split flat `knowledge/gotchas.md` is left as is,
+with a note to have `curator` split it into area files.
 
 `<dir>` itself is never fixed to `.ai-memory/` — that's just the default
 suggestion; any project-chosen path works, since nothing else in this repo

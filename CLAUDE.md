@@ -47,14 +47,23 @@ No package manager, no deps beyond the stdlib. Run directly with `python3`
 python3 skills/ed-orchestrate/scripts/validate_agents_json.py <path-to-agents.json>
 python3 skills/ed-orchestrate-init/scripts/render_agents_md_block.py <agents.json> [--project-name NAME] [--splice <AGENTS.md>]
 python3 skills/ed-orchestrate-init/scripts/render_opencode_agent_file.py <agents.json> <role-name> --out <path>
-python3 skills/ed-orchestrate-init/scripts/setup_graph_dag.py <memory-dir> [--agents-md AGENTS.md] [--gitignore .gitignore] [--orca-yaml orca.yaml] [--no-orca-yaml]
+python3 skills/ed-orchestrate-init/scripts/setup_graph_dag.py <memory-dir> [--agents-md AGENTS.md] [--gitignore .gitignore] [--orca-yaml orca.yaml] [--no-orca-yaml] [--laya] [--laya-bin .orchestrate/bin/laya-route]
 python3 skills/ed-orchestrate-init/scripts/ensure_claude_md_import.py <CLAUDE.md path> [--import-path AGENTS.md]
+python3 skills/ed-orchestrate-init/scripts/ensure_gemini_context.py [--gemini-dir .gemini] [--agents-md AGENTS.md]
+python3 skills/ed-orchestrate-init/scripts/ensure_harness_permissions.py opencode [opencode.json]
+python3 skills/ed-orchestrate-init/scripts/ensure_harness_permissions.py agy [<agy settings.json>] --path <dir> [--from-git-worktrees] [--baseline-commands]
 ```
 
 There's no test suite in this repo — validate changes to a script by running it
 against a real or hand-crafted `agents.json` (or, for `setup_graph_dag.py`, a
-scratch directory with a hand-crafted `AGENTS.md`/`.gitignore`/`orca.yaml`) and
-checking exit code / stderr output, and that re-running is a no-op.
+scratch directory with a hand-crafted `AGENTS.md`/`.gitignore`/`orca.yaml`; for
+the `ensure_*` scripts, scratch copies of the files they merge into — never the
+real `~/.gemini/antigravity-cli/settings.json`) and checking exit code / stderr
+output, and that re-running is a no-op. `skills/ed-orchestrate-init/assets/laya-route`
+(the router template `setup_graph_dag.py --laya` installs) has no `.py`
+extension — load it with `importlib.machinery.SourceFileLoader` to exercise
+`decide()` with stubbed Laya answers, and point `LAYA_URL` at a closed port to
+exercise the path-facts fallback.
 
 ## Architecture
 
@@ -139,6 +148,27 @@ an opt-in question) by splicing a small `@AGENTS.md` import into the target
 `CLAUDE.md` (`skills/ed-orchestrate-init/scripts/ensure_claude_md_import.py`,
 creating the file if missing) — Claude Code resolves `@path` imports regardless of
 the shadowing rule. Preserve this step; don't make it optional.
+
+### `ed-orchestrate-init` also fixes Gemini loading and worker write permissions
+
+Same class of silent failure as the shadow bug, same always-on treatment:
+`ensure_gemini_context.py` (step 5d3) makes gemini-cli/agy load `AGENTS.md` via
+`.gemini/settings.json` `context.fileName` plus a thin `.gemini/GEMINI.md` pointer;
+`ensure_harness_permissions.py` (step 5h) sets opencode's
+`permission.external_directory: "allow"` (worktree-shared dirs are symlinks that
+resolve outside the worktree) and — asked, since the file is user-global — adds
+agy's per-project `read_file`/`write_file`/`trustedWorkspaces` entries. Headless
+agy also needs `--dangerously-skip-permissions`, carried as binding-scoped
+`cliFlags` (a cross-harness fallback does not inherit the role's flags); the
+validator warns when an agy binding lacks it.
+
+### Graph-DAG block carries the workflow; Laya is its optional front door
+
+`setup_graph_dag.py`'s AGENTS.md block is where the orchestrator workflow lives
+(orchestrator guard, worker rules, once-per-batch integration + review, lanes) —
+it's regenerated on every init re-run, so workflow changes land there, not in
+per-project hand edits. Templates are only ever created, never overwritten:
+the project owns and tunes its copies, including the installed `laya-route`.
 
 ### v1 scope limits (intentional, not gaps to "fix")
 

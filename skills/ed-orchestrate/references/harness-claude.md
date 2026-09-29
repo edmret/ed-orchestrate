@@ -25,3 +25,20 @@ predates orca-mediated delegation.
 [harness-opencode.md](harness-opencode.md)) — this is noted here as background for
 when a `claude`-harness role might reasonably use this lighter mechanism instead of
 an orca worktree, not as something the skill automates.
+
+## Writes blocked by the orchestrator's deny rule
+
+The no-self-code deny rule ([no-self-code.md](no-self-code.md)) lives in the
+target project's `.claude/settings.json`, which is **git-tracked** — so every
+Orca child worktree checks it out too. A `claude`-harness role that has to write
+the denied paths (`coder`, `tester`, `integrator`, …) is then blocked exactly
+like the orchestrator: the worker runs, its Edit/Write calls are denied, and it
+reports little or nothing. Deny rules win over any allow, so a flag on the
+worker's invocation doesn't lift it.
+
+When any edit-capable role (primary or fallback) runs on `claude`, put the deny
+rule in the **primary checkout's `.claude/settings.local.json`** instead
+(gitignored, never present in a fresh worktree) and give those roles a
+`new-child`/`new-top-level` `worktreeStrategy` — a `current`-worktree claude
+worker shares the orchestrator's checkout and would inherit the local deny too.
+`ed-orchestrate-init` step 5f picks the target file accordingly.

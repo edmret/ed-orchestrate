@@ -9,7 +9,7 @@ schema explanation; the template itself is:
 ```markdown
 ---
 description: <role.description>
-mode: primary
+mode: all
 model: <role.provider>/<role.model>
 tools:
   bash: <role.tools.bash, default true if role.tools is null>

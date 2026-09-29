@@ -25,11 +25,18 @@ target project's root:
 Adjust the glob(s) to whatever this project's actual source directories are —
 `src/**` is illustrative, not a required path. This denies Edit/Write on those
 paths for whichever Claude Code session is running as the orchestrator in that
-project, regardless of what any prompt says; a role dispatched into its own
-worktree via `ed-orchestrate`/orca is a separate process and isn't bound by the
-parent worktree's `.claude/settings.json` unless that setting is itself
-inherited into the child (check `orca.yaml`'s worktree-sharing config if this
-matters for your setup).
+project, regardless of what any prompt says.
+
+**It also binds every Claude Code session in a child worktree.** `.claude/settings.json`
+is git-tracked, so each Orca worktree checks out the same deny rule. Workers on
+other harnesses (opencode, agy, codex, …) don't read it and are unaffected — but a
+`claude`-harness role that must write those paths (`coder`, `tester`,
+`integrator`, …) is blocked just like the orchestrator. If the roster has one, put
+the rule in the primary checkout's gitignored `.claude/settings.local.json`
+instead, and run those claude roles in their own worktree (`new-child` /
+`new-top-level`) — see [harness-claude.md](harness-claude.md). The tradeoff: the
+local file isn't shared with teammates or other machines, so each checkout sets
+it up by hand (make sure `.claude/settings.local.json` is gitignored).
 
 This is optional and not applied by `ed-orchestrate-init` automatically — it's
 a per-project choice, since some projects want the orchestrator able to make
