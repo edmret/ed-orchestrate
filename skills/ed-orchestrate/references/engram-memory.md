@@ -1,40 +1,65 @@
-# Engram persistent memory (optional, orchestrator-only, needs graph-DAG)
+# Engram persistent memory (optional, needs graph-DAG)
 
 Two memories, two jobs:
 
-| | `.ai-memory/` | Engram (`mem_*` MCP tools / engram plugin) |
+| | `.ai-memory/` | Engram (`mem_*` MCP tools) |
 | --- | --- | --- |
 | Scope | this project's live task graph, ADRs, gotchas | durable recall across sessions and projects, per user |
-| Used by | every worker role, every harness, via the worktree symlink | the orchestrator session only |
 | Holds | state: nodes, logs, reviews, curated gotchas | distilled decisions, root causes, preferences, session summaries |
-| Lifetime | working state, curated over time, local to the machine | survives checkout removal and new sessions |
+| Shared via | worktree symlink (`orca.yaml` `sharedDirectories`) | MCP server, per harness |
+| Lifetime | working state, local to the checkout's machine | survives checkout removal and new sessions |
 
-Workers never depend on Engram: not every harness has the MCP, and a worker that
-needs it would break the "any model, any harness" guarantee. They use `.ai-memory/`
-alone. The orchestrator is the bridge.
+**Why add it:** an agent can `mem_search` a topic (a few hundred tokens) instead of
+opening several gotcha/ADR files "just in case" — fewer tokens per dispatch, and the
+knowledge follows you across projects. `.ai-memory/` stays the source of truth for task
+state; Engram never holds status, diffs or logs.
 
-## What init adds
+## Every harness needs it, or those workers are out
 
-`ed-orchestrate-init` step 5g asks (default Recommended when Engram is detected) and
-runs `setup_graph_dag.py <dir> --engram`, which adds a
-`### Persistent memory (Engram)` section to the graph-DAG block in `AGENTS.md`:
+Engram is configured **per harness, user-global** (not per project). A worker on a
+harness without it simply can't search, so init checks the whole roster:
 
-- **Search first**: `mem_search` with keywords from the request before planning.
-- **Save at decision points**: `mem_save` when an ADR is accepted, a batch closes with a
-  non-obvious gotcha/root cause, the user states a preference, or a convention settles.
-- **Pointer, not copy**: one-paragraph decision + why + the `.ai-memory/` path
-  (`[[ADR-003]]`). Node logs and gotcha files remain the source of truth for state.
-- **After `curator`**: curator may run on a harness without Engram, so it lists
-  promotion candidates in its report and the orchestrator saves them.
-- **Session end**: `mem_session_summary`.
-- Never store secrets or customer data. If no `mem_*` tools exist, the section is inert.
+```
+python3 ed-orchestrate-init/scripts/ensure_engram.py --harnesses claude,opencode,agy [--project NAME]
+```
 
-The section survives every re-run of init (its heading is the marker); `--no-engram`
-removes it. Nothing else changes: no new files, no new dependency, no `agents.json`
-field.
+| ed-orchestrate harness | `engram setup` agent | Detected as installed when |
+| --- | --- | --- |
+| `claude` | `claude-code` | `engram` in `~/.claude/settings.json` `enabledPlugins`, or `~/.claude.json` `mcpServers` |
+| `opencode` | `opencode` | `mcp.engram` in `~/.config/opencode/opencode.json` |
+| `agy` | `antigravity-cli` | `mcp(engram/…)` entries in `~/.gemini/antigravity-cli/settings.json` `permissions.allow` |
+| `gemini` | `gemini-cli` | `mcpServers.engram` in `~/.gemini/settings.json` |
+| `codex` | `codex` | `engram` in `~/.codex/config.toml` |
+| `cursor` | `cursor` | `mcpServers.engram` in `~/.cursor/mcp.json` |
+| `droid` | none | manual: MCP server running `engram mcp --tools=agent` |
 
-## Install Engram (once per machine)
+The script is read-only for those files: it reports `ok` / `MISSING` / `manual` and the
+fix. Init then asks before running `engram setup <agent>` (it edits user-global config),
+or prints the commands for you to run (`! engram setup opencode`). Install the binary
+first (e.g. `brew install engram`). Headless agy also needs the `mcp(engram/mem_*)`
+allow entries — `engram setup antigravity-cli` adds them.
 
-Not part of this repo. Install it as a Claude Code plugin or MCP server per its own
-docs; init only detects it (`command -v engram`, or `engram` in `~/.claude.json`
-`mcpServers` / `~/.claude/settings.json` `enabledPlugins`).
+A worker whose harness has no Engram skips the Engram rules and works from
+`.ai-memory/` alone — never a blocker.
+
+## One project across all worktrees
+
+Engram files memories under a project name. Left to cwd detection, every Orca worktree
+directory could become its own project and fragment the memory. Init pins one name:
+`ensure_engram.py --project <name>` writes `.engram/config.json`
+(`{"project_name": "<name>"}`). **Commit that file** — a tracked file exists in every
+worktree, and a worktree of such a repo saves to the pinned project (verified). Don't
+commit the rest of `.engram/` (sync chunks) unless you use `engram sync` deliberately.
+
+## What init adds to AGENTS.md
+
+`setup_graph_dag.py <dir> --engram` adds a `### Persistent memory (Engram)` section to
+the graph-DAG block (its heading is the marker: kept on re-runs, `--no-engram` removes):
+
+- **Orchestrator**: `mem_search` before planning; `mem_save` on accepted ADR, batch
+  root cause, user preference, settled convention (a pointer to the `.ai-memory/` path,
+  not a copy); save what `curator` promoted; `mem_session_summary` at the end.
+- **Workers**: after their node/ADRs/`00-core.md`, at most 1–2 targeted `mem_search`
+  queries; `mem_save` only a non-obvious root cause (short, with the node id) — the
+  gotcha still goes to `gotchas/<area>.md` first.
+- Never secrets or customer data; Engram errors never block work.

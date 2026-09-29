@@ -169,14 +169,15 @@ gitignores the directory and registers it as an Orca-worktree-shared directory i
 `orca.yaml`. It's off by default; re-running init on a wired project refreshes the
 AGENTS.md block and adds newer templates without touching existing files.
 
-### Engram: durable memory for the orchestrator
+### Engram: durable memory for every agent
 
-With graph mode on, init can also add an orchestrator-only **Engram** section to the
-AGENTS.md block (Recommended when Engram is detected on the machine): the orchestrator
-`mem_search`es before planning, `mem_save`s accepted ADRs / batch root causes /
-preferences as pointers into `.ai-memory/`, and writes a `mem_session_summary` at the
-end. Workers never depend on it, so it works on any harness mix. See
-`skills/ed-orchestrate/references/engram-memory.md`.
+With graph mode on, init can also wire **Engram** so agents `mem_search` a topic instead
+of re-reading files (fewer tokens). It adds orchestrator and worker rules to the
+AGENTS.md block, **checks every harness in your roster has Engram** (and gives the exact
+`engram setup <agent>` command for the ones that don't: `claude-code`, `opencode`,
+`antigravity-cli`, `gemini-cli`, `codex`, `cursor`), and pins one Engram project name in
+a tracked `.engram/config.json` so all worktrees share it. `.ai-memory/` stays the
+source of truth for task state. See `skills/ed-orchestrate/references/engram-memory.md`.
 
 ### Laya router: small changes skip the planner
 

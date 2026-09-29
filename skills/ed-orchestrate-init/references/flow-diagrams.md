@@ -68,8 +68,10 @@ flowchart TD
     Q2 -->|"no / skip"| Q3
     W6 --> Q3{"5g graph wired?"}
     Q3 -->|"already wired"| W7["silently re-run setup_graph_dag.py<br/>ask Laya / Engram only if missing"]
-    Q3 -->|"not wired: ask"| W8["memory dir (default .ai-memory)<br/>then Laya, then Engram (Recommended if detected)<br/>each yes / no / explain"]
+    Q3 -->|"not wired: ask"| W8["memory dir (default .ai-memory)<br/>then Laya, then Engram<br/>each yes / no / explain"]
     Q3 -->|"declined"| Q4
+    W8 -->|"Engram yes"| E1["ensure_engram.py: check every roster harness<br/>ask to run engram setup agent (user-global)<br/>pin .engram/config.json (commit it)"]
+    E1 --> Q4
     W7 --> Q4
     W8 --> Q4
     Q4{"5h opencode binding?"} -->|yes| W9["opencode.json<br/>external_directory: allow<br/>ALWAYS"]

@@ -113,37 +113,34 @@ sequenceDiagram
   visible to people not running this setup), promote it by hand into tracked docs.
   *This promotion step is a suggestion; the skills don't automate it.*
 
-## Engram: the orchestrator's durable memory (optional)
+## Engram: durable memory for the whole team (optional)
 
 `.ai-memory/` is live, project-local state. **Engram** adds long-term memory across
-sessions and projects. Init offers it at step 5g (Recommended when detected) and adds an
-orchestrator-only section to the graph-DAG block; see
-[engram-memory.md](../skills/ed-orchestrate/references/engram-memory.md).
+sessions and projects, and lets any agent `mem_search` a topic instead of re-reading
+files (fewer tokens). Init offers it at step 5g, adds Engram rules for the orchestrator
+**and** workers to the graph-DAG block, checks every harness in the roster has Engram,
+and pins one project name for all worktrees. Details, per-harness install commands and
+detection: [engram-memory.md](../skills/ed-orchestrate/references/engram-memory.md).
 
 | | `.ai-memory/` | Engram |
 | --- | --- | --- |
 | Scope | one project's task graph and knowledge | across sessions and projects, per user |
-| Consumers | every worker role, every worktree, any harness | the orchestrator session (needs the MCP / plugin) |
 | Holds | state: nodes, logs, reviews, gotchas | distilled decisions, root causes, preferences, session summaries |
-| Shared via | filesystem symlink | MCP server |
+| Shared via | filesystem symlink | MCP server, configured per harness (user-global) |
 
 ```mermaid
 flowchart LR
-    subgraph Project["Project (per checkout)"]
-        MEM[(".ai-memory/<br/>live state, shared to workers")]
+    subgraph WT["Worktrees (any harness)"]
+        O["orchestrator<br/>claude"] & W1["coder<br/>opencode"] & W2["tester<br/>agy"]
     end
-    subgraph Workers["Workers (any harness)"]
-        W1["coder"] & W2["tester"] & W3["curator"]
-    end
-    subgraph Orch["Orchestrator session"]
-        O["orchestrator"]
-    end
-    ENG[("Engram<br/>durable, cross-session,<br/>cross-project")]
-    W1 & W2 & W3 <-->|"read / write nodes, gotchas"| MEM
-    O <-->|"read nodes, ADRs"| MEM
-    O -->|"mem_save: decisions, root causes,<br/>preferences (pointers to ADRs)"| ENG
-    ENG -->|"mem_search at start of a topic"| O
-    W3 -.->|"promotion candidates in report"| O
+    CFG[".engram/config.json<br/>(tracked, pins project name)"]
+    MEM[(".ai-memory/<br/>live state, symlinked")]
+    ENG[("Engram<br/>durable, one project name")]
+    O & W1 & W2 <-->|"nodes, ADRs, gotchas"| MEM
+    O -->|"mem_save: decisions, root causes,<br/>preferences, session summary"| ENG
+    W1 & W2 -->|"mem_search (1-2 queries)<br/>mem_save root cause only"| ENG
+    CFG -.->|"same project in every worktree"| ENG
 ```
 
-Workers never depend on Engram, so the methodology holds on harnesses without the MCP.
+If a harness has no Engram, its workers skip it and use `.ai-memory/` alone; init tells
+you which harnesses are missing and the `engram setup <agent>` command for each.

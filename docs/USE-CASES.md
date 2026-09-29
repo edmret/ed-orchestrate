@@ -136,5 +136,5 @@ the combined diff once. See [ARCHITECTURE.md §3](ARCHITECTURE.md#3-how-the-grap
 | Scoped unit tests per node, full gate once per batch by `integrator` | Green self-graded tests never count as review |
 | Review by a different role (often a different model) than the author | Independent second opinion |
 | Shared gotchas and ADRs in [`.ai-memory`](AI-MEMORY.md) | Lessons learned by one model/harness reach all others |
-| Engram for the orchestrator (optional) | Decisions and root causes survive sessions and projects; workers never depend on it |
+| Engram on every harness (optional) | Any agent can search distilled decisions and root causes instead of re-reading files; memory survives sessions and projects |
 | Ground-truth checks (files changed, node log), not exit codes | Works the same for every harness |

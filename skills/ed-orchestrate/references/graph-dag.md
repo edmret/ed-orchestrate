@@ -140,7 +140,7 @@ already wired, silently refreshes it) by running `ed-orchestrate-init/scripts/se
   lanes — same idempotent splice guarantee as the
   roster block (`agents-md-block-format.md`) — re-running only replaces that
   span, never touches content outside it;
-- with `--engram`, adds the orchestrator-only Engram section
+- with `--engram`, adds the Engram section (orchestrator + worker rules)
   ([engram-memory.md](engram-memory.md)) to that block;
 - appends `<dir>` to `.gitignore` if not already present — the task graph is
   local-machine scratch, not committed. No trailing slash: in a worktree the

@@ -6,7 +6,7 @@ index), splices the orchestrator-workflow block into AGENTS.md, gitignores the
 memory directory (it's local-machine scratch, not committed), registers it as an
 Orca worktree-shared directory in orca.yaml, and — with --laya — installs the
 Laya lane router at .orchestrate/bin/laya-route, and — with --engram — adds the
-orchestrator-only Engram persistent-memory section to the AGENTS.md block.
+Engram persistent-memory section (orchestrator + worker rules) to the AGENTS.md block.
 
 Usage:
   setup_graph_dag.py <memory-dir> [--agents-md AGENTS.md] [--gitignore .gitignore]
@@ -473,25 +473,30 @@ def engram_section(m):
         "",
         ENGRAM_HEADING,
         "",
-        f"`{m}/` is the project's live task state, shared into every worktree. **Engram** (MCP",
-        "`mem_*` tools, or the engram plugin) is the *orchestrator's* durable memory across",
-        "sessions and projects. Orchestrator-only: dispatched workers never depend on it (not",
-        f"every harness has the MCP) — they use `{m}/` alone. Skip this section silently if",
-        "no `mem_*` tools are available.",
+        f"`{m}/` is this project's live task state, shared into every worktree. **Engram**",
+        "(MCP `mem_*` tools) is durable memory across sessions and projects; the project name",
+        "is pinned by the tracked `.engram/config.json`, so every worktree and harness uses the",
+        f"same one. `{m}/` stays the source of truth for task state; Engram holds distilled",
+        "decisions and root causes so an agent can `mem_search` a topic instead of reading",
+        "many files. If no `mem_*` tools are available in your harness, skip this section.",
         "",
-        "- **Session start / new topic**: `mem_search` with keywords from the request before",
-        "  planning — prior decisions, bugs and preferences may already exist.",
-        "- **Save immediately** (`mem_save`, project-scoped) when: an ADR is accepted, a batch",
-        "  closes with a non-obvious gotcha or root cause, the user states a preference or",
-        "  rejects an approach, a convention is settled.",
-        f"- **Save a pointer, not a copy**: one-paragraph decision + why + the `{m}/` path",
-        "  (e.g. `[[ADR-003]]`). Task logs and gotcha files stay the source of truth for state.",
-        "- **After `curator` runs**: save any promoted rule or ADR that should outlive this",
-        "  checkout (curator itself may run on a harness without Engram — it lists promotion",
-        "  candidates in its report; the orchestrator saves them).",
-        "- **Before finishing a session**: `mem_session_summary` (goal, discoveries, done,",
-        "  next steps, files).",
-        "- Never store secrets, tokens or customer data.",
+        "**Orchestrator**",
+        "- Before planning: `mem_search` with keywords from the request.",
+        "- `mem_save` when an ADR is accepted, a batch closes with a non-obvious root cause,",
+        "  the user states a preference or rejects an approach, or a convention settles.",
+        f"- Save a pointer, not a copy: decision + why + the `{m}/` path (e.g. `[[ADR-003]]`).",
+        "- After `curator` runs, save the rules/ADRs it promoted (it lists candidates).",
+        "- Before finishing a session: `mem_session_summary`.",
+        "",
+        "**Workers (every dispatched role)**",
+        "- At cold start, AFTER your node/ADRs/`00-core.md`: at most 1-2 targeted `mem_search`",
+        "  queries on the node's topic instead of opening extra files \"just in case\".",
+        "- `mem_save` only a non-obvious root cause or trap you hit (short, with the node id).",
+        f"  A gotcha still goes to `{m}/knowledge/gotchas/<area>.md` first; Engram is not a",
+        "  substitute. Never save task status, diffs or logs there.",
+        "- Engram unavailable or erroring: continue without it. It is never a blocker.",
+        "",
+        "Never store secrets, tokens or customer data in Engram.",
     ]
 
 
@@ -780,7 +785,7 @@ def main():
     parser.add_argument("--laya-bin", default=".orchestrate/bin/laya-route")
     engram_grp = parser.add_mutually_exclusive_group()
     engram_grp.add_argument("--engram", action="store_true",
-                            help="add the orchestrator-only Engram persistent-memory section")
+                            help="add the Engram persistent-memory section (orchestrator + workers)")
     engram_grp.add_argument("--no-engram", action="store_true", help="remove that section")
     args = parser.parse_args()
 

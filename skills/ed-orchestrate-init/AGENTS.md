@@ -236,14 +236,29 @@ g. **Graph DAG + Laya router.**
      **No** / **Explain first**. It routes each request to `graph` / `fast` /
      `ui-iterate` / `ask` so small changes skip the planner; works (path facts
      only) even with no Laya server running.
-   - **Engram question** (only when graph-DAG is on, and the existing block has
-     no `### Persistent memory (Engram)` heading): add the orchestrator-only Engram
-     section, per `ed-orchestrate/references/engram-memory.md` — **Yes
-     (Recommended)** / **No** / **Explain first**. Detect Engram first
-     (`command -v engram`, or `engram` in `~/.claude.json` `mcpServers` /
-     `~/.claude/settings.json` `enabledPlugins`); "Recommended" only when detected,
-     otherwise note it must be installed separately. Once present the section is
-     kept on every refresh; `--no-engram` removes it.
+   - **Engram** (only when graph-DAG is on; ask when the existing block has no
+     `### Persistent memory (Engram)` heading — it's kept on every refresh, and
+     `--no-engram` removes it): a durable, cross-session memory that lets agents
+     `mem_search` a topic instead of reading many files — fewer tokens. Per
+     `ed-orchestrate/references/engram-memory.md`: **Yes** / **No** / **Explain
+     first**. On yes:
+     1. Collect every harness the roster uses (primaries and fallbacks) plus the
+        host the user is running in, and run
+        `python3 scripts/ensure_engram.py --harnesses <csv>` (read-only). Show the
+        per-harness result. The `engram` binary must exist first (`brew install
+        engram`); each `MISSING` harness needs `engram setup <agent>` (claude→claude-code,
+        agy→antigravity-cli, gemini→gemini-cli, opencode, codex, cursor; droid has no
+        installer — manual MCP `engram mcp --tools=agent`). Those edit **user-global**
+        files, so ask (structured question) whether to **run them now** / **print
+        the commands, I'll run them** (`! engram setup <agent>`) / **skip**. Workers on
+        a harness without Engram just skip it — never a blocker — but say so.
+     2. Ask (plain text) for the Engram project name, default the repo directory
+        name; run `ensure_engram.py --harnesses <csv> --project <name>` to write
+        `.engram/config.json`. Tell the user to **commit that file**: a tracked file
+        is present in every worktree, so every worker and harness resolves the same
+        project instead of one per worktree directory. (Verified: a worktree of a repo
+        with a tracked `.engram/config.json` saves to the pinned project.)
+     Then pass `--engram` below.
    Run:
    ```
    python3 scripts/setup_graph_dag.py <dir> --agents-md AGENTS.md --gitignore .gitignore --orca-yaml orca.yaml [--laya] [--engram]

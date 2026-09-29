@@ -338,22 +338,36 @@ Then — graph-DAG on (asked or already wired), and the graph-dag block has no
 `### Persistent memory (Engram)` heading yet:
 
 ```
-question: "Add Engram persistent memory to the orchestrator's workflow?"
+question: "Use Engram persistent memory so agents search instead of re-reading files?"
 header: "Engram"
 multiSelect: false
 options:
-  - label: "Yes (Recommended)"      # label is just "Yes" when Engram was not detected
-    description: "Orchestrator searches/saves decisions, gotchas and session summaries in Engram (cross-session, cross-project). Workers keep using .ai-memory only. Skipped silently where no mem_* tools exist."
+  - label: "Yes (Recommended)"
+    description: "Orchestrator AND workers get Engram rules in AGENTS.md (search at cold start, save root causes; .ai-memory stays the source of truth). Init then checks every harness in the roster has Engram and pins one project name for all worktrees."
   - label: "No"
     description: "Only the project-local .ai-memory task graph."
   - label: "Explain first"
     description: "Show what this does before deciding."
 ```
 
-"Detected" = `command -v engram` succeeds, or `engram` appears in `~/.claude.json`
-`mcpServers` / `~/.claude/settings.json` `enabledPlugins`. If not detected, still ask,
-but add to the "Yes" description that Engram must be installed separately (the
-section is inert until then).
+On yes, `ensure_engram.py --harnesses <csv>` reports which harnesses lack Engram; for
+each `MISSING` one ask (Engram writes user-global config, so this is asked, not silent):
+
+```
+question: "Install Engram for: <harness list>? (runs `engram setup <agent>`, edits your user-global config)"
+header: "Engram setup"
+multiSelect: false
+options:
+  - label: "Run them now"
+    description: "Init runs `engram setup <agent>` for each missing harness and re-checks."
+  - label: "Show commands only"
+    description: "Print them; you run them (e.g. `! engram setup opencode`)."
+  - label: "Skip"
+    description: "Those workers run without Engram; nothing breaks."
+```
+
+Then a plain-text prompt: "Engram project name? Default: `<repo dir name>`." and write
+`.engram/config.json` via `ensure_engram.py --project`, reminding the user to commit it.
 
 ## Step 5h — agy write permissions (only if a binding runs on agy)
 
