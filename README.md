@@ -25,6 +25,51 @@ Both skills also work from opencode and Antigravity/agy via the `AGENTS.md`
 auto-load convention those hosts share with Claude Code — see each skill's
 `OPENCODE.md` / `AGY.md` overlay.
 
+## How it works
+
+**1. Set up once, delegate many times.** `ed-orchestrate-init` interviews you and
+writes the roster; `ed-orchestrate` reads it on every delegation and starts the right
+worker through Orca.
+
+```mermaid
+flowchart LR
+    U([You]) -->|"once per project"| INIT["ed-orchestrate-init"]
+    INIT --> CFG[(".orchestrate/agents.json<br/>role → harness + model + provider")]
+    INIT --> AGM["AGENTS.md roster<br/>+ CLAUDE.md / GEMINI.md wiring"]
+    U -->|"'give this to the tester'"| ORCH["ed-orchestrate"]
+    ORCH --> CFG
+    ORCH -->|"orca CLI"| W["Worker on its own<br/>harness / model / worktree"]
+```
+
+**2. Optional graph mode: plan once, run in parallel, review once per batch.**
+
+```mermaid
+flowchart LR
+    P["planner"] -->|"task nodes + edges"| DAG[("Task DAG<br/>.ai-memory/")]
+    DAG --> C1["coder"] & C2["coder"] & T1["tester"]
+    C1 & C2 & T1 --> I["integrator<br/>merge + full gate"]
+    I --> RV["reviewer ∥ code-reviewer<br/>once per batch"]
+    RV --> FIX["one fix-pass + re-gate"] --> CU["curator<br/>folds gotchas"]
+```
+
+**3. Optional Laya router: small changes skip the planner.** A deterministic combiner
+merges Laya's yes/no answers with path facts (path facts win, uncertain means `graph`).
+
+```mermaid
+flowchart LR
+    REQ["Request + changed files"] --> RT{"laya-route"}
+    RT -->|"routes, stores, API, config, ≥4 files"| G["graph<br/>full DAG"]
+    RT -->|"small logic / test change"| F["fast<br/>1 coder, 1 node"]
+    RT -->|"visual tweaks"| UI["ui-iterate<br/>1 long-lived coder,<br/>debt closed at end"]
+    RT -->|"unsure, no files"| A["ask"]
+```
+
+More detail — init flow, graph generation, Laya decision tree, per-skill flows:
+
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — repo-wide diagrams
+- [ed-orchestrate flow](skills/ed-orchestrate/references/flow-diagrams.md) — the delegation steps 0–8
+- [ed-orchestrate-init flow](skills/ed-orchestrate-init/references/flow-diagrams.md) — interview, fallbacks, generation
+
 ## Install
 
 ### Quick install (any machine, via [skills.sh](https://www.skills.sh))

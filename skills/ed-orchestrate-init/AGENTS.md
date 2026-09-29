@@ -11,6 +11,8 @@ rather than re-deriving the questions each run. Default descriptions and system
 prompt seeds for the built-in roles live in
 `ed-orchestrate/references/role-defaults.md` — quote them, never re-invent them.
 
+Diagrams of this flow: [references/flow-diagrams.md](references/flow-diagrams.md).
+
 ## 1. Detect existing config
 
 Check for `.orchestrate/agents.json` in the current project. If it

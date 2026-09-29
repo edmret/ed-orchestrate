@@ -38,6 +38,11 @@ reuses `skills/ed-orchestrate/scripts/validate_agents_json.py` as the single sou
 for config validation rather than duplicating that logic. Both `npx skills add` and
 the manual symlinks above install them side by side, so this holds either way.
 
+Mermaid diagrams of the init flow, graph generation/walk, Laya routing and lanes live
+in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — update them when those flows change
+(`setup_graph_dag.py`, `laya-route` `decide()`, `references/graph-dag.md`,
+`references/laya-routing.md`).
+
 ## Running the scripts
 
 No package manager, no deps beyond the stdlib. Run directly with `python3`
