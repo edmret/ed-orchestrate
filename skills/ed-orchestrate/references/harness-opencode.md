@@ -13,7 +13,7 @@ invocation.
 ```markdown
 ---
 description: <role.description>
-mode: primary
+mode: all
 model: <provider>/<model>
 tools:
   bash: true
@@ -25,7 +25,8 @@ tools:
 <role.systemPromptSeed>
 ```
 
-`mode: primary` is required — opencode's CLI (`opencode run --agent <name>`)
+`mode: all` (or `primary`) is required — `all` lets the same file serve both as a
+top-level `opencode run --agent <name>` session and as a subagent. opencode's CLI
 refuses to run a `subagent`-mode agent as a top-level session and silently
 falls back to its own default agent/model instead, which would otherwise
 discard the role's configured harness/model without any hard error. Confirmed
@@ -37,6 +38,37 @@ delegation quietly runs on the wrong model.
 auto-generates this file for every `opencode`-harness role (see
 `ed-orchestrate-init/references/opencode-agent-file-template.md`), asking before
 overwriting an existing hand-maintained file of the same name.
+
+## Project permissions — writes through the shared memory symlink
+
+In an Orca worktree the shared task-memory dir (e.g. `.ai-memory`, shared via
+`orca.yaml` `worktree.sharedDirectories`) is a symlink that resolves **outside**
+the worktree. opencode classifies that as `external_directory`, and in
+`opencode run` (no TTY to prompt) it auto-rejects the read/write — the worker
+exits 0 having changed nothing, or can't write its task-node report. Fix, in
+the project's `opencode.json`:
+
+```json
+{ "permission": { "external_directory": "allow" } }
+```
+
+`ed-orchestrate-init` writes this (`scripts/ensure_harness_permissions.py
+opencode`) when any role or fallback runs on opencode.
+
+## Operating notes (verified in real batches)
+
+- **Stagger parallel `opencode run` starts by ≥ 30 s** — simultaneous starts
+  contend on the shared SQLite session store and one dies with `database is
+  locked`. A large `opencode.db` makes it likelier; prune between milestones.
+- **Never kill a tool process inside a running session** (e.g. `pkill` its test
+  run): the tool call never resolves and the session wedges silently. Message
+  the agent, or close the terminal and relaunch with a resume brief.
+- **`orca terminal wait --for exit` is unreliable for `opencode run`** — poll
+  `orca terminal read --limit <n>` for the run's summary and the returning shell
+  prompt instead.
+- **Keep the prompt free of shell metacharacters.** Passed inline through
+  `terminal create --command`, a `!` triggers zsh history expansion and the
+  invocation never runs. Write the brief to a file and dispatch a pointer.
 
 ## Global provider config
 

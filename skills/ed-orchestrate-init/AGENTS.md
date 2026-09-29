@@ -79,6 +79,12 @@ For each selected role:
   opencode roles as the generated agent file's `description:`), take the reply
   verbatim, and set `systemPromptSeed: null` — there is no default for custom
   roles.
+- **agy only — headless flag** (structured question, `references/interview-flow.md`
+  "Step 3 — agy headless flag"): headless `agy -p` denies every file read/write
+  unless the invocation carries `--dangerously-skip-permissions`
+  (`ed-orchestrate/references/harness-agy.md`). Propose writing
+  `cliFlags: ["--dangerously-skip-permissions"]` on the role (Recommended); on
+  decline leave `cliFlags` absent — the validator will keep warning about it.
 
 ## 3b. Add or edit a fallback
 
@@ -109,7 +115,9 @@ e. **Reuse step 3's structured call B verbatim** for the model, targeting the
    (c)/(d) for cross-harness) — including the opencode `provider/model` split.
    Write the result into the fallback entry, not the role's top-level fields.
    Omit the `harness` key entirely for a same-harness entry; set it for a
-   cross-harness entry.
+   cross-harness entry. A cross-harness entry does **not** inherit the role's
+   `cliFlags` — if its harness is `agy`, ask step 3's agy headless-flag
+   question and write the answer as the entry's own `cliFlags`.
 f. **Reuse step 3's call A effort question verbatim**, scoped to this fallback,
    with an added "inherit from primary" option (omit the field, don't write a
    value) alongside low/medium/high. Don't re-ask harness (already resolved),
@@ -168,6 +176,18 @@ d2. **Always** (not gated by any question — this is a correctness fix, not an
    small `<!-- BEGIN:ed-orchestrate-claude-import -->` block containing
    `@AGENTS.md` into an existing one, never touches any other content in the
    file.
+d3. **Always** (no question — same class of fix as d2): make gemini-cli / agy load
+   `AGENTS.md` too. gemini-cli reads only `GEMINI.md` by default, so everything
+   step d wrote would be invisible to it. Run:
+   ```
+   python3 scripts/ensure_gemini_context.py --gemini-dir .gemini --agents-md AGENTS.md
+   ```
+   Idempotent — merges `context.fileName: ["AGENTS.md", "GEMINI.md"]` into
+   `.gemini/settings.json` (preserving other keys), and splices a thin pointer
+   block (read AGENTS.md; "are you the orchestrator?"; agy headless notes) into
+   `.gemini/GEMINI.md`, creating either file if missing. If `GEMINI.md` has
+   other content, the script says so — mention in the summary that a duplicated
+   copy of `AGENTS.md` there can now be deleted (ask before deleting anything).
 e. For every role with `harness == "opencode"`: check whether
    `.opencode/agent/<role>.md` already exists. If so, ask before overwriting —
    don't clobber a hand-maintained file (this project convention already exists
@@ -185,42 +205,89 @@ f. Only on a **Start fresh** run creating `.orchestrate/agents.json` for the
    e.g. `src/**`), then merge a `permissions.deny` entry for
    `Edit(<glob>)`/`Write(<glob>)` into the target project's
    `.claude/settings.json` (create the file if missing; if it already has a
-   `permissions.deny` array, append rather than replace). On "Explain first",
+   `permissions.deny` array, append rather than replace). **Exception — a
+   `claude`-harness worker would be blocked too**: `.claude/settings.json` is
+   git-tracked, so every child worktree inherits the deny. If any edit-capable
+   binding (role primary or fallback whose `tools.edit` isn't `false` — e.g.
+   `coder`, `tester`, `integrator`) runs on `claude`, say so and write the rule
+   to `.claude/settings.local.json` instead (ensure that path is gitignored), and
+   point out that those claude roles need a `new-child`/`new-top-level`
+   `worktreeStrategy` (`ed-orchestrate/references/harness-claude.md`). On "Explain first",
    show the reference doc's summary, then re-ask. Skip this question entirely
    (don't ask) if `.claude/settings.json` already has any `permissions.deny`
    entry — treat that as the project having already made this choice.
-g. Skip this step if the target `AGENTS.md` already contains
-   `<!-- BEGIN:ed-orchestrate-graph-dag -->` — already wired, nothing to ask.
-   Otherwise ask (host overlay's structured-question mechanism) whether to set
-   up graph-engineered task delegation, per
-   `ed-orchestrate/references/graph-dag.md`: **Yes** / **No** /
-   **Explain first**. On "Explain first", show the reference doc's summary,
-   then re-ask. On yes, ask for the shared task-memory directory (free text,
-   default suggestion `.ai-memory`), then run:
+g. **Graph DAG + Laya router.**
+   - **Already wired** (`AGENTS.md` contains `<!-- BEGIN:ed-orchestrate-graph-dag -->`):
+     don't re-ask graph-DAG. Take the memory directory from that block's text
+     (it names it, e.g. "task DAG in `.ai-memory/`") and re-run the script
+     below without asking — it refreshes the block and adds any newer templates,
+     never overwriting existing files. Then, if `.orchestrate/bin/laya-route`
+     doesn't exist, ask the Laya question below; on yes, re-run with `--laya`.
+   - **Not wired**: ask (host overlay's structured-question mechanism) whether to
+     set up graph-engineered task delegation, per
+     `ed-orchestrate/references/graph-dag.md`: **Yes** / **No** /
+     **Explain first**. On "Explain first", show the reference doc's summary,
+     then re-ask. On yes, ask for the shared task-memory directory (free text,
+     default suggestion `.ai-memory`), then the Laya question.
+   - **Laya question** (only when graph-DAG is on): install the Laya lane router,
+     per `ed-orchestrate/references/laya-routing.md` — **Yes (Recommended)** /
+     **No** / **Explain first**. It routes each request to `graph` / `fast` /
+     `ui-iterate` / `ask` so small changes skip the planner; works (path facts
+     only) even with no Laya server running.
+   Run:
    ```
-   python3 scripts/setup_graph_dag.py <dir> --agents-md AGENTS.md --gitignore .gitignore --orca-yaml orca.yaml
+   python3 scripts/setup_graph_dag.py <dir> --agents-md AGENTS.md --gitignore .gitignore --orca-yaml orca.yaml [--laya]
    ```
    This scaffolds `<dir>` with the templates the roles need to actually
-   produce task-DAG artifacts — `INDEX.md` (Map of Content), `tasks/TASK-template.md`,
-   `plans/PLAN-template.md` (planner's DAG overview), `adrs/ADR-template.md`,
-   `reviews/REVIEW-template.md`, and seed `knowledge/gotchas.md` /
-   `knowledge/patterns.md` for `curator` — none overwritten if already present
-   — splices a `<!-- BEGIN:ed-orchestrate-graph-dag -->` usage block into
-   `AGENTS.md` (idempotent, same splice guarantee as the roster block — never
-   touches content outside its own markers), gitignores `<dir>/` (it's
-   local-machine scratch, never committed), and registers `<dir>` under
-   `orca.yaml`'s
-   `worktree.sharedDirectories` so every Orca worktree sees the same graph
-   (creates a minimal `orca.yaml` if none exists; appends to an existing
-   `sharedDirectories` list in place, or warns to add it by hand if the file's
-   shape can't be matched safely — never guesses at unrelated YAML). If the
-   project doesn't use Orca worktrees at all, still offer this — the shared
-   directory and AGENTS.md block are useful on their own; only the
-   `orca.yaml` step is Orca-specific (skip it with `--no-orca-yaml` if the
-   user says this project isn't Orca-managed).
-h. Print a final summary — files written, the roster table, whether `CLAUDE.md`
-   already imported `AGENTS.md` or needed the fix, and whether graph-DAG mode
-   and the no-self-code deny rule were set up — and remind the user they can
+   produce task-DAG artifacts — `INDEX.md` (Map of Content),
+   `tasks/TASK-template.md` (with `lane`/`tdd`/`routing_id`/`review`/`context`),
+   `tasks/TASK-batch-integration-template.md` (the once-per-batch merge → full
+   gate → reviewer ∥ code-reviewer → fix-pass → re-gate node),
+   `tasks/ITER-template.md` (UI-iteration debt ledger), `plans/PLAN-template.md`,
+   `adrs/ADR-template.md`, `reviews/REVIEW-template.md`, the
+   `knowledge/gotchas.md` area index with seed `knowledge/gotchas/00-core.md` and
+   `knowledge/gotchas/harness.md`, and `knowledge/patterns.md` — none
+   overwritten if already present. It splices the
+   `<!-- BEGIN:ed-orchestrate-graph-dag -->` block into `AGENTS.md` (the
+   orchestrator guard, worker rules, orchestrator workflow, and — when the router
+   is installed — the lanes; idempotent, never touches content outside its
+   markers), gitignores `<dir>` (local-machine scratch, never committed; no
+   trailing slash, since worktrees get it as a symlink), and registers `<dir>`
+   under `orca.yaml`'s `worktree.sharedDirectories` so every Orca worktree sees
+   the same graph (creates a minimal `orca.yaml` if none exists; appends to an
+   existing `sharedDirectories` list in place, or warns to add it by hand if the
+   file's shape can't be matched safely — never guesses at unrelated YAML). With
+   `--laya` it installs `.orchestrate/bin/laya-route` (never overwriting a
+   project-tuned copy) and `<dir>/laya/README.md`. If the project doesn't use
+   Orca worktrees at all, still offer this — only the `orca.yaml` step is
+   Orca-specific (skip it with `--no-orca-yaml`).
+h. **Harness write permissions** — the recurring "worker ran, changed nothing"
+   failure on new projects (`ed-orchestrate/references/harness-opencode.md`,
+   `harness-agy.md`):
+   - **opencode** — if any binding (primary or fallback) runs on `opencode`, run
+     without asking (project-local correctness fix, like d2/d3):
+     ```
+     python3 scripts/ensure_harness_permissions.py opencode opencode.json
+     ```
+     It sets `permission.external_directory: "allow"`, so workers in Orca
+     worktrees can read/write the symlinked shared directories. An explicit
+     different value is left alone (the script warns — relay it).
+   - **agy** — if any binding runs on `agy`, ask (structured question,
+     `references/interview-flow.md` "Step 5h"): agy's permissions are
+     **user-global** (`~/.gemini/antigravity-cli/settings.json`), so this edits a
+     file outside the project. Paths: the repo root, plus the directory this
+     project's Orca worktrees are created in (ask for it; suggest the parent dir
+     of any existing linked worktree — `--from-git-worktrees` finds those). On
+     yes:
+     ```
+     python3 scripts/ensure_harness_permissions.py agy --path <repo-root> --path <worktrees-dir> [--baseline-commands]
+     ```
+     Show the printed `+` entries in the summary.
+i. Print a final summary — files written, the roster
+   table, whether `CLAUDE.md` already imported `AGENTS.md` or needed the fix,
+   what the Gemini wiring (d3) and write-permission step (i) changed, whether
+   graph-DAG mode, the Laya router, and the no-self-code deny rule (and in
+   which settings file) were set up, and any validator warnings — and remind the user they can
    re-run `ed-orchestrate-init` anytime to add/edit/remove roles or
    reconfigure either.
 

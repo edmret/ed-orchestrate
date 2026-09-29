@@ -141,6 +141,19 @@ For opencode, split the chosen `provider/model` string on the first `/` into
 `model` and `provider` fields — never ask provider separately. For every other
 harness, `provider` is always `null`.
 
+## Step 3 — agy headless flag (agy roles, and cross-harness fallbacks to agy)
+
+```
+question: "<role> runs on agy. Add --dangerously-skip-permissions to its invocation?"
+header: "agy flag"
+multiSelect: false
+options:
+  - label: "Yes (Recommended)"
+    description: "Headless agy (-p) denies every file read/write without it — the role would run and change nothing. Written as cliFlags; still shown before every run."
+  - label: "No"
+    description: "Leave cliFlags absent. Only works if you run this role interactively; the validator keeps warning."
+```
+
 ## Step 3 — description and seed (free text, not a structured question)
 
 Built-in role (`coder`, `planner`, `tester`, `reviewer`, `architect`,
@@ -248,7 +261,14 @@ options:
 Not a structured question — no confirmation needed, this is a correctness
 fix. Just run `ensure_claude_md_import.py CLAUDE.md` per
 `ed-orchestrate-init/AGENTS.md` step 5's `d2`, and mention what it did (or
-that it was already wired) in the step-5h summary.
+that it was already wired) in the step-5i summary.
+
+## Step 5d3 — Gemini context (always, no question asked)
+
+Not a structured question. Run `ensure_gemini_context.py` per
+`ed-orchestrate-init/AGENTS.md` step 5's `d3`; mention in the summary what it
+changed, and if it reported content outside the pointer block in
+`.gemini/GEMINI.md`, ask (plain text) whether to delete that duplicated content.
 
 ## Step 5f — no-self-code enforcement (first-time init only)
 
@@ -271,10 +291,16 @@ options:
 On yes, follow with a plain-text prompt: "Which path glob(s) should be denied
 to the orchestrator (comma-separated)? Default: `src/**`."
 
-## Step 5g — graph-engineered task delegation (skipped if already wired)
+If any edit-capable binding runs on `claude`, say before writing: "`<roles>` run
+on Claude Code, and `.claude/settings.json` is shared into their worktrees — the
+deny would block them too. Writing it to `.claude/settings.local.json` (this
+checkout only) instead." No extra question; it's the only setup that works.
 
-Only asked if the target `AGENTS.md` has no
-`<!-- BEGIN:ed-orchestrate-graph-dag -->` block yet:
+## Step 5g — graph-engineered task delegation
+
+Asked only if the target `AGENTS.md` has no
+`<!-- BEGIN:ed-orchestrate-graph-dag -->` block yet (an already-wired project is
+refreshed silently — see `AGENTS.md` step 5g):
 
 ```
 question: "Set up graph-engineered task delegation for this project?"
@@ -282,7 +308,7 @@ header: "Graph DAG"
 multiSelect: false
 options:
   - label: "Yes"
-    description: "Planner emits a task DAG in a shared directory; the orchestrator dispatches by graph, not a flat loop. See ed-orchestrate/references/graph-dag.md."
+    description: "Planner emits a task DAG in a shared directory; the orchestrator dispatches by graph, not a flat loop; review runs once per batch at integration. See ed-orchestrate/references/graph-dag.md."
   - label: "No"
     description: "Keep delegating one task at a time via ed-orchestrate, no shared task-memory directory."
   - label: "Explain first"
@@ -291,3 +317,38 @@ options:
 
 On yes, follow with a plain-text prompt: "Which directory should hold the
 shared task graph? Default: `.ai-memory`."
+
+Then — and also for an already-wired project with no
+`.orchestrate/bin/laya-route` yet:
+
+```
+question: "Install the Laya lane router, so small changes skip the planner?"
+header: "Laya router"
+multiSelect: false
+options:
+  - label: "Yes (Recommended)"
+    description: "Routes each request to graph / fast / ui-iterate / ask. Uses a local Laya server if running, path facts otherwise. See ed-orchestrate/references/laya-routing.md."
+  - label: "No"
+    description: "Every multi-step request goes through the planner/graph."
+  - label: "Explain first"
+    description: "Show what this does before deciding."
+```
+
+## Step 5h — agy write permissions (only if a binding runs on agy)
+
+The opencode half of step 5h runs without a question. For agy, first ask
+(plain text) where this project's Orca worktrees are created, suggesting the
+parent dir of any existing linked worktree, then:
+
+```
+question: "Grant agy read/write on this project in ~/.gemini/antigravity-cli/settings.json (user-global)?"
+header: "agy perms"
+multiSelect: false
+options:
+  - label: "Yes + baseline commands (Recommended)"
+    description: "read_file/write_file + trustedWorkspaces for <repo> and <worktrees-dir>, and allow-list common first-words (git, npm, npx, node, ls, cat, grep, …)."
+  - label: "Paths only"
+    description: "Just the read_file/write_file + trustedWorkspaces entries for the two paths."
+  - label: "No"
+    description: "I'll manage agy's settings myself. agy workers will be denied file writes in this project until I do."
+```

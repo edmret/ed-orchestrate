@@ -13,6 +13,13 @@ graph-engineered pattern (a `planner`-produced task DAG, scoped task-node
 pointers instead of full context per delegation, and an `integrator` merge
 gate) instead of a flat repeated-delegation loop.
 
+## 0. Route first (only if the project has a router)
+
+If `.orchestrate/bin/laya-route` exists, the orchestrator routes each new
+request with it before choosing a role — `fast` and `ui-iterate` lanes skip the
+planner entirely for small changes. See
+[references/laya-routing.md](references/laya-routing.md). No router → skip this.
+
 ## 1. Preconditions
 
 Read `.orchestrate/agents.json` in the current project (repo-root-relative).
@@ -61,8 +68,10 @@ disambiguation style step 3 uses for delegation mode; don't invent a new mechani
 - **Token differs from the primary harness** — look for an entry in `role.fallbacks`
   whose `harness` matches:
   - **Found** — that entry's `harness`/`model`/`provider`/`effort` replace the primary
-    fields for every step below. `worktreeStrategy`, `delegationMode`, `tools`, and
-    `systemPromptSeed` are role-level and stay as they are.
+    fields for every step below, and its own `cliFlags` (none if absent) replace the
+    role's — the role's flags belong to its primary harness. `worktreeStrategy`,
+    `delegationMode`, `tools`, and `systemPromptSeed` are role-level and stay as they
+    are.
   - **Not found** — don't guess. Ask one question (host overlay's mechanism): use the
     role's primary harness instead / add a fallback for the named harness now (hand into
     `ed-orchestrate-init`'s step 3b, pre-scoped to this role and harness, then resolve
@@ -125,9 +134,20 @@ orca subsystem to use.
 
 ## 7. Construct → show → confirm → run
 
-Append any `role.cliFlags` entries verbatim to the constructed command — they're
-opaque extra flags for that role's invocation (e.g. a harness/role combo that
-needs `--dangerously-skip-permissions`); never invent or drop them.
+Append the resolved binding's `cliFlags` verbatim to the constructed command —
+`role.cliFlags` for the primary or a same-harness fallback (unless that entry sets
+its own), the fallback entry's own `cliFlags` for a cross-harness one. They're
+opaque extra flags for that binding (e.g. headless agy's
+`--dangerously-skip-permissions`); never invent or drop them.
+
+Keep the task prompt a short pointer — "Execute [[TASK-NNN]]. Governed by
+[[ADR-NNN]]." or "Execute the brief in `<path>`." — and put anything longer in a
+file first. Inline prompts passed through `terminal create --command` break on
+shell metacharacters (a `!` triggers zsh history expansion and the command never
+runs). For `coder`/`tester`, the prompt also states: scoped unit tests only, no
+e2e, no git, and do not end the turn after reading context — sub-agents otherwise
+default to the full suite. When dispatching several opencode workers at once,
+stagger their starts by ≥ 30 s (`references/harness-opencode.md`).
 
 Always render the fully resolved command(s) in a fenced code block in your reply
 *before* invoking Bash. See your host overlay for exactly what "confirm" means on
@@ -138,6 +158,10 @@ that host — it's the dry-run safety net, and there is no separate CLI flag for
 - **handoff** — report the worktree/terminal handle back to the user and stop. Don't
   keep polling; that's what `orca-cli`'s own "give this to another agent" pattern
   means.
+- Judge a worker by ground truth — the files it should have changed and its task
+  node's log — never by exit code or terminal-tail length (`orca terminal read`
+  returns ~120 lines unless you pass `--limit`). Never kill a worker's in-flight
+  tool process; message it or relaunch with a resume brief.
 - **supervised** — run the `orca orchestration check --wait --types
   worker_done,escalation,question --timeout-ms <n>` loop per the live guide fetched in
   step 5, surface `worker_done`/`escalation` results to the user, and use
