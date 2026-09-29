@@ -27,6 +27,13 @@ auto-load convention those hosts share with Claude Code — see each skill's
 
 ## How it works
 
+**Why:** models, prices, limits and harnesses change constantly; the *process* shouldn't.
+Roles, the task graph, scoped tests and one review per batch stay fixed while each role's
+harness/model/provider is swappable. Claude can orchestrate remotely while open-source
+models (via opencode) do the volume work, or Claude/any other harness can do everything,
+or any mix, with the same quality gates. Orca
+launches and supervises the workers; Laya keeps small changes fast.
+
 **1. Set up once, delegate many times.** `ed-orchestrate-init` interviews you and
 writes the roster; `ed-orchestrate` reads it on every delegation and starts the right
 worker through Orca.
@@ -64,8 +71,10 @@ flowchart LR
     RT -->|"unsure, no files"| A["ask"]
 ```
 
-More detail — init flow, graph generation, Laya decision tree, per-skill flows:
+More detail — use cases, memory, init flow, graph generation, Laya decision tree, per-skill flows:
 
+- [docs/USE-CASES.md](docs/USE-CASES.md) — why this exists, where Orca fits, mix-and-match scenarios (Claude orchestrates + open-source workers, all-Claude, other harnesses, fallbacks, Laya fast lanes)
+- [docs/AI-MEMORY.md](docs/AI-MEMORY.md) — how `.ai-memory/` works and how the worktree symlink shares decisions live
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — repo-wide diagrams
 - [ed-orchestrate flow](skills/ed-orchestrate/references/flow-diagrams.md) — the delegation steps 0–8
 - [ed-orchestrate-init flow](skills/ed-orchestrate-init/references/flow-diagrams.md) — interview, fallbacks, generation
