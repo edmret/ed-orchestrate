@@ -74,7 +74,7 @@ flowchart LR
 More detail — use cases, memory, init flow, graph generation, Laya decision tree, per-skill flows:
 
 - [docs/USE-CASES.md](docs/USE-CASES.md) — why this exists, where Orca fits, mix-and-match scenarios (Claude orchestrates + open-source workers, all-Claude, other harnesses, fallbacks, Laya fast lanes)
-- [docs/AI-MEMORY.md](docs/AI-MEMORY.md) — how `.ai-memory/` works and how the worktree symlink shares decisions live
+- [docs/AI-MEMORY.md](docs/AI-MEMORY.md) — how `.ai-memory/` works, how the worktree symlink shares decisions live, and how Engram complements it
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — repo-wide diagrams
 - [ed-orchestrate flow](skills/ed-orchestrate/references/flow-diagrams.md) — the delegation steps 0–8
 - [ed-orchestrate-init flow](skills/ed-orchestrate-init/references/flow-diagrams.md) — interview, fallbacks, generation
@@ -168,6 +168,15 @@ UI-iteration ledger, plan, ADR, review, a gotchas index with seed `00-core.md` /
 gitignores the directory and registers it as an Orca-worktree-shared directory in
 `orca.yaml`. It's off by default; re-running init on a wired project refreshes the
 AGENTS.md block and adds newer templates without touching existing files.
+
+### Engram: durable memory for the orchestrator
+
+With graph mode on, init can also add an orchestrator-only **Engram** section to the
+AGENTS.md block (Recommended when Engram is detected on the machine): the orchestrator
+`mem_search`es before planning, `mem_save`s accepted ADRs / batch root causes /
+preferences as pointers into `.ai-memory/`, and writes a `mem_session_summary` at the
+end. Workers never depend on it, so it works on any harness mix. See
+`skills/ed-orchestrate/references/engram-memory.md`.
 
 ### Laya router: small changes skip the planner
 

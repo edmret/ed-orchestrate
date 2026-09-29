@@ -334,6 +334,27 @@ options:
     description: "Show what this does before deciding."
 ```
 
+Then — graph-DAG on (asked or already wired), and the graph-dag block has no
+`### Persistent memory (Engram)` heading yet:
+
+```
+question: "Add Engram persistent memory to the orchestrator's workflow?"
+header: "Engram"
+multiSelect: false
+options:
+  - label: "Yes (Recommended)"      # label is just "Yes" when Engram was not detected
+    description: "Orchestrator searches/saves decisions, gotchas and session summaries in Engram (cross-session, cross-project). Workers keep using .ai-memory only. Skipped silently where no mem_* tools exist."
+  - label: "No"
+    description: "Only the project-local .ai-memory task graph."
+  - label: "Explain first"
+    description: "Show what this does before deciding."
+```
+
+"Detected" = `command -v engram` succeeds, or `engram` appears in `~/.claude.json`
+`mcpServers` / `~/.claude/settings.json` `enabledPlugins`. If not detected, still ask,
+but add to the "Yes" description that Engram must be installed separately (the
+section is inert until then).
+
 ## Step 5h — agy write permissions (only if a binding runs on agy)
 
 The opencode half of step 5h runs without a question. For agy, first ask

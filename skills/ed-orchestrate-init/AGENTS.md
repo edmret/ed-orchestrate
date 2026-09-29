@@ -236,9 +236,17 @@ g. **Graph DAG + Laya router.**
      **No** / **Explain first**. It routes each request to `graph` / `fast` /
      `ui-iterate` / `ask` so small changes skip the planner; works (path facts
      only) even with no Laya server running.
+   - **Engram question** (only when graph-DAG is on, and the existing block has
+     no `### Persistent memory (Engram)` heading): add the orchestrator-only Engram
+     section, per `ed-orchestrate/references/engram-memory.md` — **Yes
+     (Recommended)** / **No** / **Explain first**. Detect Engram first
+     (`command -v engram`, or `engram` in `~/.claude.json` `mcpServers` /
+     `~/.claude/settings.json` `enabledPlugins`); "Recommended" only when detected,
+     otherwise note it must be installed separately. Once present the section is
+     kept on every refresh; `--no-engram` removes it.
    Run:
    ```
-   python3 scripts/setup_graph_dag.py <dir> --agents-md AGENTS.md --gitignore .gitignore --orca-yaml orca.yaml [--laya]
+   python3 scripts/setup_graph_dag.py <dir> --agents-md AGENTS.md --gitignore .gitignore --orca-yaml orca.yaml [--laya] [--engram]
    ```
    This scaffolds `<dir>` with the templates the roles need to actually
    produce task-DAG artifacts — `INDEX.md` (Map of Content),
@@ -251,8 +259,9 @@ g. **Graph DAG + Laya router.**
    `knowledge/gotchas/harness.md`, and `knowledge/patterns.md` — none
    overwritten if already present. It splices the
    `<!-- BEGIN:ed-orchestrate-graph-dag -->` block into `AGENTS.md` (the
-   orchestrator guard, worker rules, orchestrator workflow, and — when the router
-   is installed — the lanes; idempotent, never touches content outside its
+   orchestrator guard, worker rules, orchestrator workflow, when the router is
+   installed the lanes, and with `--engram` the Engram persistent-memory section;
+   idempotent, never touches content outside its
    markers), gitignores `<dir>` (local-machine scratch, never committed; no
    trailing slash, since worktrees get it as a symlink), and registers `<dir>`
    under `orca.yaml`'s `worktree.sharedDirectories` so every Orca worktree sees

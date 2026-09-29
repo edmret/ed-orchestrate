@@ -67,8 +67,8 @@ flowchart TD
     Q2 -->|"ask: yes"| W6["deny Edit/Write on src glob<br/>settings.json, or settings.local.json<br/>if a claude worker can edit"]
     Q2 -->|"no / skip"| Q3
     W6 --> Q3{"5g graph wired?"}
-    Q3 -->|"already wired"| W7["silently re-run setup_graph_dag.py<br/>ask Laya only if router missing"]
-    Q3 -->|"not wired: ask"| W8["memory dir (default .ai-memory)<br/>then Laya yes / no / explain"]
+    Q3 -->|"already wired"| W7["silently re-run setup_graph_dag.py<br/>ask Laya / Engram only if missing"]
+    Q3 -->|"not wired: ask"| W8["memory dir (default .ai-memory)<br/>then Laya, then Engram (Recommended if detected)<br/>each yes / no / explain"]
     Q3 -->|"declined"| Q4
     W7 --> Q4
     W8 --> Q4

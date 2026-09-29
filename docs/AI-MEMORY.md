@@ -113,21 +113,37 @@ sequenceDiagram
   visible to people not running this setup), promote it by hand into tracked docs.
   *This promotion step is a suggestion; the skills don't automate it.*
 
-## Relationship to Engram (or any other persistent memory)
+## Engram: the orchestrator's durable memory (optional)
 
-The skills in this repo **do not integrate Engram** (or any MCP memory server): there are
-no references to it in the skills, templates or scripts. The two solve different layers
-and are complementary if you run Engram yourself:
+`.ai-memory/` is live, project-local state. **Engram** adds long-term memory across
+sessions and projects. Init offers it at step 5g (Recommended when detected) and adds an
+orchestrator-only section to the graph-DAG block; see
+[engram-memory.md](../skills/ed-orchestrate/references/engram-memory.md).
 
-| | `.ai-memory/` (this repo) | Engram-style persistent memory |
+| | `.ai-memory/` | Engram |
 | --- | --- | --- |
 | Scope | one project's task graph and knowledge | across sessions and projects, per user |
-| Consumers | every worker role in every worktree, any harness | the interactive session that has the MCP tool |
-| Lifetime | working state for batches, gotchas curated over time | long-term recall of decisions, preferences, past bugs |
+| Consumers | every worker role, every worktree, any harness | the orchestrator session (needs the MCP / plugin) |
+| Holds | state: nodes, logs, reviews, gotchas | distilled decisions, root causes, preferences, session summaries |
 | Shared via | filesystem symlink | MCP server |
-| Requires | Orca `sharedDirectories` | that harness to have the MCP configured |
 
-Practical split if you use both: workers rely only on `.ai-memory/` (any harness can read
-a file, but not every harness has your MCP tools); the orchestrator session can also save
-durable, cross-project decisions to Engram. Making that automatic (e.g. a curator step
-that exports promoted ADRs) would be a new feature: say so if you want it added.
+```mermaid
+flowchart LR
+    subgraph Project["Project (per checkout)"]
+        MEM[(".ai-memory/<br/>live state, shared to workers")]
+    end
+    subgraph Workers["Workers (any harness)"]
+        W1["coder"] & W2["tester"] & W3["curator"]
+    end
+    subgraph Orch["Orchestrator session"]
+        O["orchestrator"]
+    end
+    ENG[("Engram<br/>durable, cross-session,<br/>cross-project")]
+    W1 & W2 & W3 <-->|"read / write nodes, gotchas"| MEM
+    O <-->|"read nodes, ADRs"| MEM
+    O -->|"mem_save: decisions, root causes,<br/>preferences (pointers to ADRs)"| ENG
+    ENG -->|"mem_search at start of a topic"| O
+    W3 -.->|"promotion candidates in report"| O
+```
+
+Workers never depend on Engram, so the methodology holds on harnesses without the MCP.

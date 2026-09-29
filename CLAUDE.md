@@ -52,7 +52,7 @@ No package manager, no deps beyond the stdlib. Run directly with `python3`
 python3 skills/ed-orchestrate/scripts/validate_agents_json.py <path-to-agents.json>
 python3 skills/ed-orchestrate-init/scripts/render_agents_md_block.py <agents.json> [--project-name NAME] [--splice <AGENTS.md>]
 python3 skills/ed-orchestrate-init/scripts/render_opencode_agent_file.py <agents.json> <role-name> --out <path>
-python3 skills/ed-orchestrate-init/scripts/setup_graph_dag.py <memory-dir> [--agents-md AGENTS.md] [--gitignore .gitignore] [--orca-yaml orca.yaml] [--no-orca-yaml] [--laya] [--laya-bin .orchestrate/bin/laya-route]
+python3 skills/ed-orchestrate-init/scripts/setup_graph_dag.py <memory-dir> [--agents-md AGENTS.md] [--gitignore .gitignore] [--orca-yaml orca.yaml] [--no-orca-yaml] [--laya] [--laya-bin .orchestrate/bin/laya-route] [--engram | --no-engram]
 python3 skills/ed-orchestrate-init/scripts/ensure_claude_md_import.py <CLAUDE.md path> [--import-path AGENTS.md]
 python3 skills/ed-orchestrate-init/scripts/ensure_gemini_context.py [--gemini-dir .gemini] [--agents-md AGENTS.md]
 python3 skills/ed-orchestrate-init/scripts/ensure_harness_permissions.py opencode [opencode.json]
