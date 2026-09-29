@@ -100,6 +100,11 @@ sequenceDiagram
 
 ## Gotchas of the symlink design
 
+- **Pre-flight**: every worker's rules (AGENTS.md block) start with a check: in a linked
+  worktree, `readlink .ai-memory` must resolve into the main checkout. If it's missing or
+  a real directory the worker STOPS and reports. A locally created copy would be silently
+  discarded with the worktree, losing every task-node update.
+
 - **opencode**: the symlink resolves *outside* the worktree, so opencode treats it as
   `external_directory` and, in `run` mode, silently rejects reads/writes. Init sets
   `permission.external_directory: "allow"` in `opencode.json`.
