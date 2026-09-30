@@ -212,6 +212,16 @@ on a new project:
   read/write entries in its user-global settings (init offers to add them for the
   repo and its Orca worktree dir).
 
+## After setup: trust, then a smoke test
+
+Trust and write permission are separate gates, and trust is per exact path (Codex, Claude
+Code, agy), so it covers this folder but not each new Orca worktree. Init ends with a
+checklist: open every harness you use once in the project folder and accept the trust
+prompt; expect the same prompt on the first worker in a fresh worktree. It then offers a
+**smoke test**: one trivial "append a line to `<memory-dir>/tasks/SMOKE.md`" task per
+harness, verified by `scripts/smoke_check.py` from the file itself (never the worker's
+self-report), with the usual cause printed for any harness that couldn't write.
+
 ## Optional: enforce "orchestrator doesn't self-code" at the permission layer
 
 Every role in the roster has a documented forbidden zone (`reviewer` never edits,

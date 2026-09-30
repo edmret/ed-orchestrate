@@ -328,6 +328,31 @@ i. Print a final summary — files written, the roster
    re-run `ed-orchestrate-init` anytime to add/edit/remove roles or
    reconfigure either.
 
+j. **Next steps + smoke test** — always end the summary with this checklist (print
+   it; change nothing on the user's machine without asking). Trust and write
+   permission are different gates: a harness can trust the folder and still be
+   sandboxed off the shared-memory symlink (verified for Codex), so both are checked.
+   1. **Open each harness once in this project folder and accept its trust prompt**
+      — every harness in the roster plus the one the user orchestrates from.
+      Trust is keyed by exact path (Codex `projects."<path>".trust_level`, Claude
+      Code `projects["<path>"].hasTrustDialogAccepted`, agy `trustedWorkspaces`), so
+      it covers sessions in THIS folder only.
+   2. **Worktrees are new paths**: the first worker Orca starts in a fresh worktree
+      may raise the same prompt. Tell the user to accept it on first run (or
+      pre-trust the worktrees directory — untested whether a parent covers its
+      children, so don't promise it).
+   3. **Smoke test** (offer; structured question per `references/interview-flow.md`
+      "Step 5j"): for each distinct harness in the roster, `python3
+      scripts/smoke_check.py <dir> --harnesses <csv> --print-task` gives the
+      one-line delegation text; delegate it to a role on that harness through
+      `ed-orchestrate` (handoff, `new-child` worktree). Then run `python3
+      scripts/smoke_check.py <dir> --harnesses <csv>` — it reads
+      `<dir>/tasks/SMOKE.md`, the ground truth, and prints `ok` or `MISSING` with the
+      usual cause per harness (trust, sandbox `--add-dir`, `external_directory`, agy
+      flags). Never trust a worker's exit code or self-report. Fix, re-delegate,
+      and re-check; once all are `ok`, run it once more with `--reset` to delete the
+      file. Skipped smoke test: say a failed first real batch is the fallback signal.
+
 **v1 scope note (fallbacks)**: `render_opencode_agent_file.py` reads a role's
 primary fields only and refuses any role whose primary harness isn't `opencode`.
 A role with an `opencode` *fallback* but a different primary harness therefore

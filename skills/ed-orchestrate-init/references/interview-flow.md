@@ -400,3 +400,16 @@ options:
   - label: "No"
     description: "I'll manage agy's settings myself. agy workers will be denied file writes in this project until I do."
 ```
+
+## Step 5j — smoke test (after the summary, when graph-DAG is on)
+
+```
+question: "Run a write smoke test on each harness now? (one trivial task per harness, checked from the file it writes)"
+header: "Smoke test"
+multiSelect: false
+options:
+  - label: "Yes (Recommended)"
+    description: "Delegates one 'append a line to <dir>/tasks/SMOKE.md' task per harness and verifies the file. Catches trust, sandbox and permission problems before a real batch."
+  - label: "No"
+    description: "Skip. The first real batch is then the test."
+```

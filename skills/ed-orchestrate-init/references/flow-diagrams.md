@@ -80,6 +80,11 @@ flowchart TD
     Q5 -->|"ask: yes"| W10["~/.gemini/antigravity-cli/settings.json<br/>user-global: repo + worktrees dir"]
     Q5 -->|no| SUM
     W10 --> SUM(["Summary: files, roster, warnings,<br/>graph / Laya / deny status"])
+    SUM --> NS["5j Next steps: open each harness here, accept trust<br/>worktrees are new paths: accept on first run"]
+    NS --> SM{"smoke test?"}
+    SM -->|yes| SM1["delegate one write task per harness<br/>smoke_check.py reads SMOKE.md (ground truth)<br/>MISSING shows the usual cause; fix, repeat, --reset"]
+    SM -->|no| END2(["done"])
+    SM1 --> END2
 ```
 
 ## Idempotency: what re-runs may touch
