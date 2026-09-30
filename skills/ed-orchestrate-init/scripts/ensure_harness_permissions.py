@@ -23,6 +23,16 @@ key in the file:
       Note: headless `agy -p` additionally needs `--dangerously-skip-permissions`
       (a role `cliFlags` entry) — this file alone doesn't lift that gate.
 
+  codex <agents.json> --memory-dir DIR
+      Headless Codex runs in a sandbox that blocks writes through the worktree-shared
+      memory symlink (it resolves outside the worktree): "operation not permitted".
+      Verified fix: `--add-dir "$(readlink -f DIR)"` — the target must be the RESOLVED
+      real path (Codex rejects a symlinked writable root), hence the shell
+      substitution, evaluated in the worktree the command runs in. Adds that pair to
+      `cliFlags` of every codex binding (role-level for the primary and same-harness
+      fallbacks, entry-level for cross-harness codex fallbacks) in agents.json.
+      Edits the roster only; re-validate and re-splice afterwards.
+
 Prints what changed; re-running is a no-op.
 """
 import argparse
@@ -133,6 +143,45 @@ def cmd_agy(a):
         print(f"  + {entry}")
 
 
+def codex_flags(memory_dir):
+    return ["--add-dir", '"$(readlink -f %s)"' % memory_dir.rstrip("/")]
+
+
+def _ensure_flags(owner, flags):
+    """Append the flag pair to owner['cliFlags'] unless an --add-dir is already there."""
+    cur = owner.get("cliFlags")
+    cur = list(cur) if isinstance(cur, list) else []
+    if "--add-dir" in cur:
+        return False
+    owner["cliFlags"] = cur + flags
+    return True
+
+
+def cmd_codex(a):
+    data, existed = load_json(a.agents_json, None)
+    if not existed or data is None:
+        sys.exit(f"ERROR: {a.agents_json} not found")
+    flags = codex_flags(a.memory_dir)
+    changed = []
+    for name, role in (data.get("roles") or {}).items():
+        if role.get("harness") == "codex" and _ensure_flags(role, flags):
+            changed.append(f"roles.{name}.cliFlags")
+        for i, fb in enumerate(role.get("fallbacks") or []):
+            fb_harness = fb.get("harness")
+            if fb_harness == "codex":
+                if _ensure_flags(fb, flags):
+                    changed.append(f"roles.{name}.fallbacks[{i}].cliFlags")
+            # same-harness fallbacks (no harness key) inherit the role's flags
+    if not changed:
+        print(f"{a.agents_json}: no codex binding needs --add-dir (already set or none use codex)")
+        return
+    write_json(a.agents_json, data)
+    print(f"{a.agents_json}: updated")
+    for c in changed:
+        print(f"  + {c}: {' '.join(flags)}")
+    print("Re-validate agents.json and re-splice the AGENTS.md roster block.")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -145,6 +194,10 @@ def main():
     p.add_argument("--from-git-worktrees", action="store_true")
     p.add_argument("--baseline-commands", action="store_true")
     p.set_defaults(fn=cmd_agy)
+    p = sub.add_parser("codex")
+    p.add_argument("agents_json", nargs="?", default=".orchestrate/agents.json")
+    p.add_argument("--memory-dir", default=".ai-memory")
+    p.set_defaults(fn=cmd_codex)
     a = parser.parse_args()
     if hasattr(a, "settings"):
         a.settings = os.path.expanduser(a.settings)

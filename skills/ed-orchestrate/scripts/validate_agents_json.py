@@ -12,6 +12,7 @@ import sys
 
 ROLE_NAME_RE = re.compile(r"^[a-z][a-z0-9-]*$")
 AGY_HEADLESS_FLAG = "--dangerously-skip-permissions"
+CODEX_SHARED_DIR_FLAG = "--add-dir"
 HARNESSES = {"claude", "codex", "opencode", "agy", "cursor", "gemini", "droid"}
 EFFORTS = {"low", "medium", "high", None}
 WORKTREE_STRATEGIES = {"current", "new-child", "new-top-level"}
@@ -110,6 +111,12 @@ def validate(data):
                 f"{prefix}.cliFlags: harness is 'agy' but {AGY_HEADLESS_FLAG!r} is missing — "
                 "headless agy denies every file read/write without it (references/harness-agy.md)"
             )
+        if harness == "codex" and CODEX_SHARED_DIR_FLAG not in role_flags:
+            warnings.append(
+                f"{prefix}.cliFlags: harness is 'codex' but {CODEX_SHARED_DIR_FLAG!r} is missing — "
+                "if the project shares a task-memory dir into worktrees by symlink, the Codex "
+                "sandbox blocks writes to it (references/harness-codex.md)"
+            )
 
         fallbacks = role.get("fallbacks")
         if fallbacks is not None:
@@ -182,6 +189,12 @@ def validate(data):
                         warnings.append(
                             f"{fprefix}.cliFlags: effective harness is 'agy' but {AGY_HEADLESS_FLAG!r} "
                             "is missing — headless agy denies every file read/write without it"
+                        )
+                    if effective_harness == "codex" and CODEX_SHARED_DIR_FLAG not in eff_flags:
+                        warnings.append(
+                            f"{fprefix}.cliFlags: effective harness is 'codex' but "
+                            f"{CODEX_SHARED_DIR_FLAG!r} is missing — the Codex sandbox blocks "
+                            "writes through the shared task-memory symlink"
                         )
 
                     if "effort" in fb:

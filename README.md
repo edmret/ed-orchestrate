@@ -200,6 +200,11 @@ on a new project:
 - **gemini-cli / agy** read only `GEMINI.md` — init adds `AGENTS.md` to
   `.gemini/settings.json`'s `context.fileName` and makes `.gemini/GEMINI.md` a thin
   pointer (orchestrator guard + agy headless notes) instead of a drifting copy.
+- **Codex** reads `AGENTS.md` natively (no extra file), but caps project docs at
+  `project_doc_max_bytes` (32 KiB by default) — init warns when `AGENTS.md`
+  passes 30 KB — and its sandbox blocks writes through the shared-memory symlink
+  unless the role's `cliFlags` carry `--add-dir "$(readlink -f .ai-memory)"` (init
+  adds it on request).
 - **Worker writes** — opencode rejects writes through the worktree-shared symlinks
   unless `opencode.json` allows `external_directory` (init sets it); headless agy
   denies all file I/O without `--dangerously-skip-permissions` (init proposes it as

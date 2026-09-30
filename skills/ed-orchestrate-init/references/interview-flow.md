@@ -369,6 +369,19 @@ options:
 Then a plain-text prompt: "Engram project name? Default: `<repo dir name>`." and write
 `.engram/config.json` via `ensure_engram.py --project`, reminding the user to commit it.
 
+## Step 5h — codex shared-memory flag (only if a binding runs on codex, graph-DAG on)
+
+```
+question: "<role list> run on codex. Add --add-dir for the shared memory directory?"
+header: "codex flag"
+multiSelect: false
+options:
+  - label: "Yes (Recommended)"
+    description: "Codex's sandbox blocks writes through the worktree-shared symlink (operation not permitted). Adds --add-dir \"$(readlink -f <dir>)\" to those roles' cliFlags; still shown before every run."
+  - label: "No"
+    description: "Leave cliFlags as is. Codex workers can read the memory dir but not write their task-node reports; the validator keeps warning."
+```
+
 ## Step 5h — agy write permissions (only if a binding runs on agy)
 
 The opencode half of step 5h runs without a question. For agy, first ask

@@ -298,6 +298,17 @@ h. **Harness write permissions** — the recurring "worker ran, changed nothing"
      It sets `permission.external_directory: "allow"`, so workers in Orca
      worktrees can read/write the symlinked shared directories. An explicit
      different value is left alone (the script warns — relay it).
+   - **codex** — if any binding (primary or fallback) runs on `codex` and graph-DAG is
+     on, ask (structured question, `references/interview-flow.md` "Step 5h — codex"):
+     headless Codex's sandbox blocks writes through the worktree-shared memory symlink
+     ("operation not permitted"; `ed-orchestrate/references/harness-codex.md`). On yes:
+     ```
+     python3 scripts/ensure_harness_permissions.py codex .orchestrate/agents.json --memory-dir <dir>
+     ```
+     It adds `--add-dir "$(readlink -f <dir>)"` to every codex binding's `cliFlags`
+     (resolved path required; the shell substitution keeps it machine-independent).
+     Then re-run step 5b (validate) and 5c/5d (write + re-splice the roster). Writing
+     roles also need `-s workspace-write` in the invocation — mention it.
    - **agy** — if any binding runs on `agy`, ask (structured question,
      `references/interview-flow.md` "Step 5h"): agy's permissions are
      **user-global** (`~/.gemini/antigravity-cli/settings.json`), so this edits a

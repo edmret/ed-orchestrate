@@ -57,6 +57,7 @@ python3 skills/ed-orchestrate-init/scripts/ensure_engram.py --harnesses claude,o
 python3 skills/ed-orchestrate-init/scripts/ensure_claude_md_import.py <CLAUDE.md path> [--import-path AGENTS.md]
 python3 skills/ed-orchestrate-init/scripts/ensure_gemini_context.py [--gemini-dir .gemini] [--agents-md AGENTS.md]
 python3 skills/ed-orchestrate-init/scripts/ensure_harness_permissions.py opencode [opencode.json]
+python3 skills/ed-orchestrate-init/scripts/ensure_harness_permissions.py codex [.orchestrate/agents.json] [--memory-dir .ai-memory]
 python3 skills/ed-orchestrate-init/scripts/ensure_harness_permissions.py agy [<agy settings.json>] --path <dir> [--from-git-worktrees] [--baseline-commands]
 ```
 

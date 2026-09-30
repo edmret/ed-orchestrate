@@ -18,6 +18,7 @@ import json
 import re
 import sys
 
+AGENTS_MD_WARN_BYTES = 30000  # Codex reads at most project_doc_max_bytes (32768) of AGENTS.md
 BEGIN = "<!-- BEGIN:ed-orchestrate-roster -->"
 END = "<!-- END:ed-orchestrate-roster -->"
 SPLICE_RE = re.compile(re.escape(BEGIN) + r".*?" + re.escape(END), re.DOTALL)
@@ -113,6 +114,13 @@ def main():
     with open(args.splice, "w", encoding="utf-8") as f:
         f.write(new_content)
 
+    if len(new_content.encode("utf-8")) > AGENTS_MD_WARN_BYTES:
+        print(
+            f"WARN: {args.splice} is {len(new_content.encode('utf-8'))} bytes; Codex may ignore everything past "
+            "project_doc_max_bytes (default 32 KiB) — trim it or raise that setting "
+            "in ~/.codex/config.toml",
+            file=sys.stderr,
+        )
     print(f"Spliced ed-orchestrate-roster block into {args.splice}")
 
 
