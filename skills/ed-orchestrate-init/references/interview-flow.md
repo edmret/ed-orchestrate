@@ -334,6 +334,54 @@ options:
     description: "Show what this does before deciding."
 ```
 
+Then — graph-DAG on (asked or already wired), and the graph-dag block has no
+`### Persistent memory (Engram)` heading yet:
+
+```
+question: "Use Engram persistent memory so agents search instead of re-reading files?"
+header: "Engram"
+multiSelect: false
+options:
+  - label: "Yes (Recommended)"
+    description: "Orchestrator AND workers get Engram rules in AGENTS.md (search at cold start, save root causes; .ai-memory stays the source of truth). Init then checks every harness in the roster has Engram and pins one project name for all worktrees."
+  - label: "No"
+    description: "Only the project-local .ai-memory task graph."
+  - label: "Explain first"
+    description: "Show what this does before deciding."
+```
+
+On yes, `ensure_engram.py --harnesses <csv>` reports which harnesses lack Engram; for
+each `MISSING` one ask (Engram writes user-global config, so this is asked, not silent):
+
+```
+question: "Install Engram for: <harness list>? (runs `engram setup <agent>`, edits your user-global config)"
+header: "Engram setup"
+multiSelect: false
+options:
+  - label: "Run them now"
+    description: "Init runs `engram setup <agent>` for each missing harness and re-checks."
+  - label: "Show commands only"
+    description: "Print them; you run them (e.g. `! engram setup opencode`)."
+  - label: "Skip"
+    description: "Those workers run without Engram; nothing breaks."
+```
+
+Then a plain-text prompt: "Engram project name? Default: `<repo dir name>`." and write
+`.engram/config.json` via `ensure_engram.py --project`, reminding the user to commit it.
+
+## Step 5h — codex shared-memory flag (only if a binding runs on codex, graph-DAG on)
+
+```
+question: "<role list> run on codex. Add --add-dir for the shared memory directory?"
+header: "codex flag"
+multiSelect: false
+options:
+  - label: "Yes (Recommended)"
+    description: "Codex's sandbox blocks writes through the worktree-shared symlink (operation not permitted). Adds --add-dir \"$(readlink -f <dir>)\" to those roles' cliFlags; still shown before every run."
+  - label: "No"
+    description: "Leave cliFlags as is. Codex workers can read the memory dir but not write their task-node reports; the validator keeps warning."
+```
+
 ## Step 5h — agy write permissions (only if a binding runs on agy)
 
 The opencode half of step 5h runs without a question. For agy, first ask
@@ -351,4 +399,17 @@ options:
     description: "Just the read_file/write_file + trustedWorkspaces entries for the two paths."
   - label: "No"
     description: "I'll manage agy's settings myself. agy workers will be denied file writes in this project until I do."
+```
+
+## Step 5j — smoke test (after the summary, when graph-DAG is on)
+
+```
+question: "Run a write smoke test on each harness now? (one trivial task per harness, checked from the file it writes)"
+header: "Smoke test"
+multiSelect: false
+options:
+  - label: "Yes (Recommended)"
+    description: "Delegates one 'append a line to <dir>/tasks/SMOKE.md' task per harness and verifies the file. Catches trust, sandbox and permission problems before a real batch."
+  - label: "No"
+    description: "Skip. The first real batch is then the test."
 ```

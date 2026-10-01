@@ -236,9 +236,32 @@ g. **Graph DAG + Laya router.**
      **No** / **Explain first**. It routes each request to `graph` / `fast` /
      `ui-iterate` / `ask` so small changes skip the planner; works (path facts
      only) even with no Laya server running.
+   - **Engram** (only when graph-DAG is on; ask when the existing block has no
+     `### Persistent memory (Engram)` heading — it's kept on every refresh, and
+     `--no-engram` removes it): a durable, cross-session memory that lets agents
+     `mem_search` a topic instead of reading many files — fewer tokens. Per
+     `ed-orchestrate/references/engram-memory.md`: **Yes** / **No** / **Explain
+     first**. On yes:
+     1. Collect every harness the roster uses (primaries and fallbacks) plus the
+        host the user is running in, and run
+        `python3 scripts/ensure_engram.py --harnesses <csv>` (read-only). Show the
+        per-harness result. The `engram` binary must exist first (`brew install
+        engram`); each `MISSING` harness needs `engram setup <agent>` (claude→claude-code,
+        agy→antigravity-cli, gemini→gemini-cli, opencode, codex, cursor; droid has no
+        installer — manual MCP `engram mcp --tools=agent`). Those edit **user-global**
+        files, so ask (structured question) whether to **run them now** / **print
+        the commands, I'll run them** (`! engram setup <agent>`) / **skip**. Workers on
+        a harness without Engram just skip it — never a blocker — but say so.
+     2. Ask (plain text) for the Engram project name, default the repo directory
+        name; run `ensure_engram.py --harnesses <csv> --project <name>` to write
+        `.engram/config.json`. Tell the user to **commit that file**: a tracked file
+        is present in every worktree, so every worker and harness resolves the same
+        project instead of one per worktree directory. (Verified: a worktree of a repo
+        with a tracked `.engram/config.json` saves to the pinned project.)
+     Then pass `--engram` below.
    Run:
    ```
-   python3 scripts/setup_graph_dag.py <dir> --agents-md AGENTS.md --gitignore .gitignore --orca-yaml orca.yaml [--laya]
+   python3 scripts/setup_graph_dag.py <dir> --agents-md AGENTS.md --gitignore .gitignore --orca-yaml orca.yaml [--laya] [--engram]
    ```
    This scaffolds `<dir>` with the templates the roles need to actually
    produce task-DAG artifacts — `INDEX.md` (Map of Content),
@@ -251,8 +274,9 @@ g. **Graph DAG + Laya router.**
    `knowledge/gotchas/harness.md`, and `knowledge/patterns.md` — none
    overwritten if already present. It splices the
    `<!-- BEGIN:ed-orchestrate-graph-dag -->` block into `AGENTS.md` (the
-   orchestrator guard, worker rules, orchestrator workflow, and — when the router
-   is installed — the lanes; idempotent, never touches content outside its
+   orchestrator guard, worker rules, orchestrator workflow, when the router is
+   installed the lanes, and with `--engram` the Engram persistent-memory section;
+   idempotent, never touches content outside its
    markers), gitignores `<dir>` (local-machine scratch, never committed; no
    trailing slash, since worktrees get it as a symlink), and registers `<dir>`
    under `orca.yaml`'s `worktree.sharedDirectories` so every Orca worktree sees
@@ -274,6 +298,17 @@ h. **Harness write permissions** — the recurring "worker ran, changed nothing"
      It sets `permission.external_directory: "allow"`, so workers in Orca
      worktrees can read/write the symlinked shared directories. An explicit
      different value is left alone (the script warns — relay it).
+   - **codex** — if any binding (primary or fallback) runs on `codex` and graph-DAG is
+     on, ask (structured question, `references/interview-flow.md` "Step 5h — codex"):
+     headless Codex's sandbox blocks writes through the worktree-shared memory symlink
+     ("operation not permitted"; `ed-orchestrate/references/harness-codex.md`). On yes:
+     ```
+     python3 scripts/ensure_harness_permissions.py codex .orchestrate/agents.json --memory-dir <dir>
+     ```
+     It adds `--add-dir "$(readlink -f <dir>)"` to every codex binding's `cliFlags`
+     (resolved path required; the shell substitution keeps it machine-independent).
+     Then re-run step 5b (validate) and 5c/5d (write + re-splice the roster). Writing
+     roles also need `-s workspace-write` in the invocation — mention it.
    - **agy** — if any binding runs on `agy`, ask (structured question,
      `references/interview-flow.md` "Step 5h"): agy's permissions are
      **user-global** (`~/.gemini/antigravity-cli/settings.json`), so this edits a
@@ -292,6 +327,31 @@ i. Print a final summary — files written, the roster
    which settings file) were set up, and any validator warnings — and remind the user they can
    re-run `ed-orchestrate-init` anytime to add/edit/remove roles or
    reconfigure either.
+
+j. **Next steps + smoke test** — always end the summary with this checklist (print
+   it; change nothing on the user's machine without asking). Trust and write
+   permission are different gates: a harness can trust the folder and still be
+   sandboxed off the shared-memory symlink (verified for Codex), so both are checked.
+   1. **Open each harness once in this project folder and accept its trust prompt**
+      — every harness in the roster plus the one the user orchestrates from.
+      Trust is keyed by exact path (Codex `projects."<path>".trust_level`, Claude
+      Code `projects["<path>"].hasTrustDialogAccepted`, agy `trustedWorkspaces`), so
+      it covers sessions in THIS folder only.
+   2. **Worktrees are new paths**: the first worker Orca starts in a fresh worktree
+      may raise the same prompt. Tell the user to accept it on first run (or
+      pre-trust the worktrees directory — untested whether a parent covers its
+      children, so don't promise it).
+   3. **Smoke test** (offer; structured question per `references/interview-flow.md`
+      "Step 5j"): for each distinct harness in the roster, `python3
+      scripts/smoke_check.py <dir> --harnesses <csv> --print-task` gives the
+      one-line delegation text; delegate it to a role on that harness through
+      `ed-orchestrate` (handoff, `new-child` worktree). Then run `python3
+      scripts/smoke_check.py <dir> --harnesses <csv>` — it reads
+      `<dir>/tasks/SMOKE.md`, the ground truth, and prints `ok` or `MISSING` with the
+      usual cause per harness (trust, sandbox `--add-dir`, `external_directory`, agy
+      flags). Never trust a worker's exit code or self-report. Fix, re-delegate,
+      and re-check; once all are `ok`, run it once more with `--reset` to delete the
+      file. Skipped smoke test: say a failed first real batch is the fallback signal.
 
 **v1 scope note (fallbacks)**: `render_opencode_agent_file.py` reads a role's
 primary fields only and refuses any role whose primary harness isn't `opencode`.

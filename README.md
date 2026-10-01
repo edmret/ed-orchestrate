@@ -27,6 +27,13 @@ auto-load convention those hosts share with Claude Code — see each skill's
 
 ## How it works
 
+**Why:** models, prices, limits and harnesses change constantly; the *process* shouldn't.
+Roles, the task graph, scoped tests and one review per batch stay fixed while each role's
+harness/model/provider is swappable. Claude can orchestrate remotely while open-source
+models (via opencode) do the volume work, or Claude/any other harness can do everything,
+or any mix, with the same quality gates. Orca
+launches and supervises the workers; Laya keeps small changes fast.
+
 **1. Set up once, delegate many times.** `ed-orchestrate-init` interviews you and
 writes the roster; `ed-orchestrate` reads it on every delegation and starts the right
 worker through Orca.
@@ -64,8 +71,10 @@ flowchart LR
     RT -->|"unsure, no files"| A["ask"]
 ```
 
-More detail — init flow, graph generation, Laya decision tree, per-skill flows:
+More detail — use cases, memory, init flow, graph generation, Laya decision tree, per-skill flows:
 
+- [docs/USE-CASES.md](docs/USE-CASES.md) — why this exists, where Orca fits, mix-and-match scenarios (Claude orchestrates + open-source workers, all-Claude, other harnesses, fallbacks, Laya fast lanes)
+- [docs/AI-MEMORY.md](docs/AI-MEMORY.md) — how `.ai-memory/` works, how the worktree symlink shares decisions live, and how Engram complements it
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — repo-wide diagrams
 - [ed-orchestrate flow](skills/ed-orchestrate/references/flow-diagrams.md) — the delegation steps 0–8
 - [ed-orchestrate-init flow](skills/ed-orchestrate-init/references/flow-diagrams.md) — interview, fallbacks, generation
@@ -160,6 +169,16 @@ gitignores the directory and registers it as an Orca-worktree-shared directory i
 `orca.yaml`. It's off by default; re-running init on a wired project refreshes the
 AGENTS.md block and adds newer templates without touching existing files.
 
+### Engram: durable memory for every agent
+
+With graph mode on, init can also wire **Engram** so agents `mem_search` a topic instead
+of re-reading files (fewer tokens). It adds orchestrator and worker rules to the
+AGENTS.md block, **checks every harness in your roster has Engram** (and gives the exact
+`engram setup <agent>` command for the ones that don't: `claude-code`, `opencode`,
+`antigravity-cli`, `gemini-cli`, `codex`, `cursor`), and pins one Engram project name in
+a tracked `.engram/config.json` so all worktrees share it. `.ai-memory/` stays the
+source of truth for task state. See `skills/ed-orchestrate/references/engram-memory.md`.
+
 ### Laya router: small changes skip the planner
 
 With graph mode on, init can also install `.orchestrate/bin/laya-route`, a
@@ -181,12 +200,27 @@ on a new project:
 - **gemini-cli / agy** read only `GEMINI.md` — init adds `AGENTS.md` to
   `.gemini/settings.json`'s `context.fileName` and makes `.gemini/GEMINI.md` a thin
   pointer (orchestrator guard + agy headless notes) instead of a drifting copy.
+- **Codex** reads `AGENTS.md` natively (no extra file), but caps project docs at
+  `project_doc_max_bytes` (32 KiB by default) — init warns when `AGENTS.md`
+  passes 30 KB — and its sandbox blocks writes through the shared-memory symlink
+  unless the role's `cliFlags` carry `--add-dir "$(readlink -f .ai-memory)"` (init
+  adds it on request).
 - **Worker writes** — opencode rejects writes through the worktree-shared symlinks
   unless `opencode.json` allows `external_directory` (init sets it); headless agy
   denies all file I/O without `--dangerously-skip-permissions` (init proposes it as
   the role's `cliFlags`, the validator warns when missing) and needs per-project
   read/write entries in its user-global settings (init offers to add them for the
   repo and its Orca worktree dir).
+
+## After setup: trust, then a smoke test
+
+Trust and write permission are separate gates, and trust is per exact path (Codex, Claude
+Code, agy), so it covers this folder but not each new Orca worktree. Init ends with a
+checklist: open every harness you use once in the project folder and accept the trust
+prompt; expect the same prompt on the first worker in a fresh worktree. It then offers a
+**smoke test**: one trivial "append a line to `<memory-dir>/tasks/SMOKE.md`" task per
+harness, verified by `scripts/smoke_check.py` from the file itself (never the worker's
+self-report), with the usual cause printed for any harness that couldn't write.
 
 ## Optional: enforce "orchestrator doesn't self-code" at the permission layer
 

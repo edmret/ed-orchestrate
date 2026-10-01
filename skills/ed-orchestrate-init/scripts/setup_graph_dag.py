@@ -5,19 +5,21 @@ plan/ADR/review templates, a per-area gotchas knowledge base, and a Map-of-Conte
 index), splices the orchestrator-workflow block into AGENTS.md, gitignores the
 memory directory (it's local-machine scratch, not committed), registers it as an
 Orca worktree-shared directory in orca.yaml, and — with --laya — installs the
-Laya lane router at .orchestrate/bin/laya-route.
+Laya lane router at .orchestrate/bin/laya-route, and — with --engram — adds the
+Engram persistent-memory section (orchestrator + worker rules) to the AGENTS.md block.
 
 Usage:
   setup_graph_dag.py <memory-dir> [--agents-md AGENTS.md] [--gitignore .gitignore]
       [--orca-yaml orca.yaml] [--no-orca-yaml]
-      [--laya] [--laya-bin .orchestrate/bin/laya-route]
+      [--laya] [--laya-bin .orchestrate/bin/laya-route] [--engram | --no-engram]
 
 Idempotent: safe to re-run, and re-running is how an already-wired project picks
 up newer templates and a refreshed AGENTS.md block. Never overwrites an existing
 template, note, or laya-route file (the project owns and tunes its copies), never
 duplicates a gitignore line, an AGENTS.md block, or an orca.yaml entry. The Laya
 lane section of the AGENTS.md block is included whenever laya-route is installed,
-whether by this run or an earlier one.
+whether by this run or an earlier one. The Engram section is kept on re-runs once
+present (its heading is the marker); --no-engram removes it.
 """
 import argparse
 import datetime
@@ -26,6 +28,7 @@ import re
 import stat
 import sys
 
+AGENTS_MD_WARN_BYTES = 30000  # Codex reads at most project_doc_max_bytes (32768) of AGENTS.md
 BEGIN = "<!-- BEGIN:ed-orchestrate-graph-dag -->"
 END = "<!-- END:ed-orchestrate-graph-dag -->"
 SPLICE_RE = re.compile(re.escape(BEGIN) + r".*?" + re.escape(END), re.DOTALL)
@@ -463,7 +466,42 @@ def _fill(template, mem, today):
     return template.replace("@@MEM@@", mem).replace("@@DATE@@", today)
 
 
-def render_agents_md_block(memory_dir, laya_bin=None):
+ENGRAM_HEADING = "### Persistent memory (Engram)"
+
+
+def engram_section(m):
+    return [
+        "",
+        ENGRAM_HEADING,
+        "",
+        f"`{m}/` is this project's live task state, shared into every worktree. **Engram**",
+        "(MCP `mem_*` tools) is durable memory across sessions and projects; the project name",
+        "is pinned by the tracked `.engram/config.json`, so every worktree and harness uses the",
+        f"same one. `{m}/` stays the source of truth for task state; Engram holds distilled",
+        "decisions and root causes so an agent can `mem_search` a topic instead of reading",
+        "many files. If no `mem_*` tools are available in your harness, skip this section.",
+        "",
+        "**Orchestrator**",
+        "- Before planning: `mem_search` with keywords from the request.",
+        "- `mem_save` when an ADR is accepted, a batch closes with a non-obvious root cause,",
+        "  the user states a preference or rejects an approach, or a convention settles.",
+        f"- Save a pointer, not a copy: decision + why + the `{m}/` path (e.g. `[[ADR-003]]`).",
+        "- After `curator` runs, save the rules/ADRs it promoted (it lists candidates).",
+        "- Before finishing a session: `mem_session_summary`.",
+        "",
+        "**Workers (every dispatched role)**",
+        "- At cold start, AFTER your node/ADRs/`00-core.md`: at most 1-2 targeted `mem_search`",
+        "  queries on the node's topic instead of opening extra files \"just in case\".",
+        "- `mem_save` only a non-obvious root cause or trap you hit (short, with the node id).",
+        f"  A gotcha still goes to `{m}/knowledge/gotchas/<area>.md` first; Engram is not a",
+        "  substitute. Never save task status, diffs or logs there.",
+        "- Engram unavailable or erroring: continue without it. It is never a blocker.",
+        "",
+        "Never store secrets, tokens or customer data in Engram.",
+    ]
+
+
+def render_agents_md_block(memory_dir, laya_bin=None, engram=False):
     today = datetime.date.today().isoformat()
     m = memory_dir.rstrip("/")
     out = [
@@ -491,6 +529,12 @@ def render_agents_md_block(memory_dir, laya_bin=None):
         "",
         "### Worker rules (every dispatched role)",
         "",
+        "- **Pre-flight, mandatory**: in a linked git worktree (`git rev-parse --git-dir` differs",
+        f"  from `--git-common-dir`), `{m}` must be a symlink into the main checkout",
+        f"  (`readlink {m}`). If it is absent or a real directory, STOP and report — never",
+        "  create a local copy: it is discarded with the worktree, taking every task-node",
+        "  update with it. Also never install dependencies in a worktree whose dependency",
+        "  directory the project shares by symlink.",
         "- **Cold-start budget**: read your task node (or ITER ledger), its `governed_by` ADRs,",
         f"  `{m}/knowledge/gotchas/00-core.md`, and ONLY the files in the node's `context:`",
         f"  frontmatter. Not `{m}/INDEX.md` (that's for planner/architect/curator), not every",
@@ -603,6 +647,8 @@ def render_agents_md_block(memory_dir, laya_bin=None):
             "  correct|wrong-lane|wrong-tdd|wrong-context`; the orchestrator does the same when a",
             "  fast/ui-iterate session escalated.",
         ]
+    if engram:
+        out += engram_section(m)
     out.append(END)
     return "\n".join(out) + "\n"
 
@@ -744,6 +790,10 @@ def main():
     parser.add_argument("--no-orca-yaml", action="store_true")
     parser.add_argument("--laya", action="store_true", help="install the Laya lane router")
     parser.add_argument("--laya-bin", default=".orchestrate/bin/laya-route")
+    engram_grp = parser.add_mutually_exclusive_group()
+    engram_grp.add_argument("--engram", action="store_true",
+                            help="add the Engram persistent-memory section (orchestrator + workers)")
+    engram_grp.add_argument("--no-engram", action="store_true", help="remove that section")
     args = parser.parse_args()
 
     if args.laya:
@@ -776,12 +826,29 @@ def main():
             existing = f.read()
     except FileNotFoundError:
         existing = ""
+    # Engram is kept on refresh once present (heading is the marker); --no-engram drops it.
+    old_block = SPLICE_RE.search(existing)
+    had_engram = bool(old_block and ENGRAM_HEADING in old_block.group(0))
+    engram_active = args.engram or (had_engram and not args.no_engram)
     new_content = splice(
-        existing, render_agents_md_block(args.memory_dir, args.laya_bin if laya_active else None)
+        existing,
+        render_agents_md_block(
+            args.memory_dir, args.laya_bin if laya_active else None, engram_active
+        ),
     )
     with open(args.agents_md, "w", encoding="utf-8") as f:
         f.write(new_content)
-    print(f"Spliced ed-orchestrate-graph-dag block into {args.agents_md}")
+    if len(new_content.encode("utf-8")) > AGENTS_MD_WARN_BYTES:
+        print(
+            f"WARN: {args.agents_md} is {len(new_content.encode('utf-8'))} bytes; Codex may ignore everything past "
+            "project_doc_max_bytes (default 32 KiB) — trim it or raise that setting "
+            "in ~/.codex/config.toml",
+            file=sys.stderr,
+        )
+    print(
+        f"Spliced ed-orchestrate-graph-dag block into {args.agents_md}"
+        + (" (with Engram section)" if engram_active else "")
+    )
 
     changed = ensure_gitignore(args.gitignore, args.memory_dir)
     print(f"{'Updated' if changed else 'Already ignored'}: {args.gitignore}")

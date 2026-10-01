@@ -67,9 +67,11 @@ flowchart TD
     Q2 -->|"ask: yes"| W6["deny Edit/Write on src glob<br/>settings.json, or settings.local.json<br/>if a claude worker can edit"]
     Q2 -->|"no / skip"| Q3
     W6 --> Q3{"5g graph wired?"}
-    Q3 -->|"already wired"| W7["silently re-run setup_graph_dag.py<br/>ask Laya only if router missing"]
-    Q3 -->|"not wired: ask"| W8["memory dir (default .ai-memory)<br/>then Laya yes / no / explain"]
+    Q3 -->|"already wired"| W7["silently re-run setup_graph_dag.py<br/>ask Laya / Engram only if missing"]
+    Q3 -->|"not wired: ask"| W8["memory dir (default .ai-memory)<br/>then Laya, then Engram<br/>each yes / no / explain"]
     Q3 -->|"declined"| Q4
+    W8 -->|"Engram yes"| E1["ensure_engram.py: check every roster harness<br/>ask to run engram setup agent (user-global)<br/>pin .engram/config.json (commit it)"]
+    E1 --> Q4
     W7 --> Q4
     W8 --> Q4
     Q4{"5h opencode binding?"} -->|yes| W9["opencode.json<br/>external_directory: allow<br/>ALWAYS"]
@@ -78,6 +80,11 @@ flowchart TD
     Q5 -->|"ask: yes"| W10["~/.gemini/antigravity-cli/settings.json<br/>user-global: repo + worktrees dir"]
     Q5 -->|no| SUM
     W10 --> SUM(["Summary: files, roster, warnings,<br/>graph / Laya / deny status"])
+    SUM --> NS["5j Next steps: open each harness here, accept trust<br/>worktrees are new paths: accept on first run"]
+    NS --> SM{"smoke test?"}
+    SM -->|yes| SM1["delegate one write task per harness<br/>smoke_check.py reads SMOKE.md (ground truth)<br/>MISSING shows the usual cause; fix, repeat, --reset"]
+    SM -->|no| END2(["done"])
+    SM1 --> END2
 ```
 
 ## Idempotency: what re-runs may touch
