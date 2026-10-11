@@ -18,7 +18,8 @@ Diagrams of this flow: [references/flow-diagrams.md](references/flow-diagrams.md
 Check for `.orchestrate/agents.json` in the current project. If it
 exists, ask: **Start fresh** / **Edit existing** (load current roles as the
 starting point for steps 2–3) / **Add or edit a fallback harness** (skip steps 2
-and 3, go straight to step 3b) / **Cancel**.
+and 3, go straight to step 3b) / **Edit model tiers** (skip steps 2 and 3, go
+straight to step 3c) / **Cancel**.
 
 If it doesn't exist, check the pre-rename path,
 `.claude/ed-orchestrate/agents.json`, before treating the project as fresh — a
@@ -33,7 +34,7 @@ If this skill was invoked with an argument matching an existing role name
 (case/slug-normalized), skip the branch above and step 2's role picker entirely —
 go straight to that role's edit menu: **Edit primary config** (step 3 for that
 role) / **Add or edit a fallback harness** (step 3b, already role-scoped) /
-**Cancel**. An argument that matches no existing role falls through to the normal
+**Edit model tiers** (step 3c, already role-scoped) / **Cancel**. An argument that matches no existing role falls through to the normal
 detection, and is treated as a pre-filled custom-role name if the user reaches
 the step 2 picker.
 
@@ -87,6 +88,42 @@ For each selected role:
   (`ed-orchestrate/references/harness-agy.md`). Propose writing
   `cliFlags: ["--dangerously-skip-permissions"]` on the role (Recommended); on
   decline leave `cliFlags` absent — the validator will keep warning about it.
+
+## 3c. Model tiers (N models) — `coder` by default
+
+`modelTiers` lets a role declare N cheaper models below its own, so a router (Laya) can
+send easy tasks to cheap models and keep the strong one for hard tasks. Schema:
+`ed-orchestrate/references/agents-json-schema.md`; how routing, rollout and tuning work:
+`ed-orchestrate/references/laya-routing.md` ("Model tiers"). Exact questions in
+`references/interview-flow.md` "Step 3c".
+
+**Asked by default for `coder`** (right after step 3's fields for that role; never for other
+roles unless the user enters via "Edit model tiers" and picks one). Skipped silently if the
+coder's harness is one that can't switch model per launch and has no generated agent file
+(`gemini`/`droid`) — say so in one line.
+
+a. Frame it: the coder's model chosen in step 3 is the **`strong`** tier (always last on the
+   ladder). Ask: add cheaper tiers? **Yes, N tiers (Recommended when using Laya)** /
+   **No, single model**. "No" writes nothing (no `modelTiers`, no `tierPolicy`).
+b. Loop for each tier, cheapest first (typical: 1–3): ask tier **name** (default `cheap`, then
+   `mid`; `strong` is reserved), reuse step 3's **harness** question (offer "same as coder"
+   first) and **model** call B for that harness (including the opencode `provider/model`
+   split), **effort** with "inherit" (as in 3b), and a free-text one-line **`useWhen`** — what
+   kind of task this model is good enough for (offer defaults: `cheap` = "labels, styling,
+   markup, i18n, docs, copying an existing pattern"; `mid` = "new logic with a clear spec
+   and tests"). agy tier → also ask the headless-flag question (own `cliFlags`). After each:
+   "add another tier?" until the user stops.
+c. `tierPolicy`: write `{"mode": "shadow", "start": "strong", "escalateAfter": 2}` — **always
+   shadow first**; never offer `on` here. Tell the user in one line that dispatch stays on
+   the strong model until the outcome log supports turning it on (laya-routing.md
+   "Fine-tuning it").
+d. Show the ladder (`cheap → mid → strong` with models and `useWhen`) and confirm / edit /
+   cancel. On confirm write `role.modelTiers` + `role.tierPolicy`; validate and re-splice
+   exactly as 3b(h). Do **not** regenerate the opencode agent file — a tier is dispatched by
+   passing `--model`, the file derives from primary fields only.
+e. If graph-DAG + Laya are on (or later enabled), step 5g's `laya-route` reads these tiers
+   automatically. If Laya is **not** installed, tiers still work for manual/planner choice;
+   mention that `Yes` to the Laya question is what automates the pick.
 
 ## 3b. Add or edit a fallback
 
@@ -143,7 +180,7 @@ Render the full drafted roster as a markdown table in the chat. One final
 structured question: **Yes, write it** / **Edit a specific role** / **Cancel**.
 "Edit a specific role" asks which role, then offers **Edit primary config** (loop
 back to step 3 for that role) or **Add or edit a fallback harness** (step 3b,
-already role-scoped).
+already role-scoped) or **Edit model tiers** (step 3c).
 
 ## 5. Generate
 
@@ -242,7 +279,7 @@ g. **Graph DAG + Laya router.**
      `mem_search` a topic instead of reading many files — fewer tokens. Per
      `ed-orchestrate/references/engram-memory.md`: **Yes** / **No** / **Explain
      first**. On yes:
-     1. Collect every harness the roster uses (primaries and fallbacks) plus the
+     1. Collect every harness the roster uses (primaries, fallbacks and model tiers) plus the
         host the user is running in, and run
         `python3 scripts/ensure_engram.py --harnesses <csv>` (read-only). Show the
         per-harness result. The `engram` binary must exist first (`brew install

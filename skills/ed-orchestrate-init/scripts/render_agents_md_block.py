@@ -60,6 +60,24 @@ def render_block(data):
             f"{provider} | {effort} | {role.get('delegationMode', '—')} | {fallbacks} |"
         )
     lines.append("")
+    for name, role in roles.items():
+        tiers = role.get("modelTiers") or []
+        if not tiers:
+            continue
+        mode = (role.get("tierPolicy") or {}).get("mode", "shadow")
+        ladder = " → ".join(
+            [f"`{t.get('name')}` ({t.get('model', '—')})" for t in tiers]
+            + [f"`strong` ({role.get('model', '—')})"]
+        )
+        lines.append(f"**{name} model tiers** (mode: {mode}): {ladder}.")
+        for t in tiers:
+            if t.get("useWhen"):
+                lines.append(f"- `{t.get('name')}`: {t['useWhen']}")
+        lines.append(
+            "Tier picks come from `laya-route` / the planner; in `shadow` mode they are logged "
+            "but the strong model is still dispatched."
+        )
+        lines.append("")
     if default_role:
         lines.append(f"Default role when unspecified: **{default_role}**.")
         lines.append("")

@@ -17,6 +17,8 @@ HARNESSES = {"claude", "codex", "opencode", "agy", "cursor", "gemini", "droid"}
 EFFORTS = {"low", "medium", "high", None}
 WORKTREE_STRATEGIES = {"current", "new-child", "new-top-level"}
 DELEGATION_MODES = {"handoff", "supervised"}
+PRIMARY_TIER = "strong"  # reserved: the role's own binding is always the top tier
+TIER_MODES = {"off", "shadow", "on"}
 REQUIRED_ROLE_FIELDS = (
     "description",
     "harness",
@@ -28,6 +30,125 @@ REQUIRED_ROLE_FIELDS = (
     "worktreeStrategy",
     "delegationMode",
 )
+
+
+def _validate_model_tiers(prefix, role, harness, role_flags, errors, warnings):
+    """Optional `modelTiers`: N cheaper bindings below the role's own (reserved `strong`) one.
+
+    A router (e.g. laya-route) picks a tier name per task; the orchestrator dispatches with that
+    binding's model. Returns the set of declared tier names (empty if absent/invalid).
+    """
+    tiers = role.get("modelTiers")
+    if tiers is None:
+        return set()
+    if not isinstance(tiers, list):
+        errors.append(f"{prefix}.modelTiers: must be an array or absent")
+        return set()
+
+    names, seen = set(), set()
+    primary_key = (harness, role.get("provider"), role.get("model"))
+    for i, tier in enumerate(tiers):
+        tprefix = f"{prefix}.modelTiers[{i}]"
+        if not isinstance(tier, dict):
+            errors.append(f"{tprefix}: must be an object")
+            continue
+
+        name = tier.get("name")
+        if not isinstance(name, str) or not ROLE_NAME_RE.match(name):
+            errors.append(f"{tprefix}.name: required, must match ^[a-z][a-z0-9-]*$")
+        elif name == PRIMARY_TIER:
+            errors.append(
+                f"{tprefix}.name: {PRIMARY_TIER!r} is reserved for the role's own "
+                "harness/model/provider — list only the cheaper tiers here"
+            )
+        elif name in names:
+            errors.append(f"{tprefix}.name: duplicate tier name {name!r}")
+        else:
+            names.add(name)
+
+        if "model" not in tier:
+            errors.append(f"{tprefix}.model: missing")
+        elif not isinstance(tier["model"], str):
+            errors.append(f"{tprefix}.model: must be a string")
+
+        t_harness = tier.get("harness")
+        if t_harness is not None and t_harness not in HARNESSES:
+            errors.append(
+                f"{tprefix}.harness: must be one of {sorted(HARNESSES)}, or absent, got {t_harness!r}"
+            )
+        eff_harness = t_harness if t_harness is not None else harness
+
+        t_provider = tier.get("provider")
+        if t_provider is not None and not isinstance(t_provider, str):
+            errors.append(f"{tprefix}.provider: must be a string or null")
+        if t_provider is not None and eff_harness != "opencode":
+            warnings.append(
+                f"{tprefix}.provider: set to {t_provider!r} but effective harness is "
+                f"{eff_harness!r}; provider is only meaningful for harness == opencode in v1"
+            )
+
+        if "effort" in tier and tier["effort"] not in EFFORTS:
+            errors.append(f"{tprefix}.effort: must be one of low|medium|high|null, got {tier['effort']!r}")
+
+        use_when = tier.get("useWhen")
+        if use_when is not None and not isinstance(use_when, str):
+            errors.append(f"{tprefix}.useWhen: must be a string or absent")
+
+        t_flags = tier.get("cliFlags")
+        if t_flags is not None and (
+            not isinstance(t_flags, list) or not all(isinstance(f, str) for f in t_flags)
+        ):
+            errors.append(f"{tprefix}.cliFlags: must be an array of strings, or absent")
+        # Same inheritance rule as fallbacks: same-harness tiers inherit the role's flags.
+        if t_flags is None:
+            eff_flags = role_flags if t_harness is None else []
+        else:
+            eff_flags = t_flags if isinstance(t_flags, list) else []
+        if eff_harness == "agy" and AGY_HEADLESS_FLAG not in eff_flags:
+            warnings.append(
+                f"{tprefix}.cliFlags: effective harness is 'agy' but {AGY_HEADLESS_FLAG!r} "
+                "is missing — headless agy denies every file read/write without it"
+            )
+        if eff_harness == "codex" and CODEX_SHARED_DIR_FLAG not in eff_flags:
+            warnings.append(
+                f"{tprefix}.cliFlags: effective harness is 'codex' but {CODEX_SHARED_DIR_FLAG!r} "
+                "is missing — the Codex sandbox blocks writes through the shared task-memory symlink"
+            )
+
+        key = (eff_harness, t_provider, tier.get("model"))
+        if key == primary_key:
+            errors.append(f"{tprefix}: identical to the role's own binding ({PRIMARY_TIER!r}) — pointless tier")
+        elif key in seen:
+            errors.append(
+                f"{tprefix}: duplicate binding (harness={eff_harness!r}, provider={t_provider!r}, "
+                f"model={tier.get('model')!r}) — each may appear once"
+            )
+        else:
+            seen.add(key)
+    return names
+
+
+def _validate_tier_policy(prefix, role, tier_names, errors):
+    policy = role.get("tierPolicy")
+    if policy is None:
+        return
+    pprefix = f"{prefix}.tierPolicy"
+    if not isinstance(policy, dict):
+        errors.append(f"{pprefix}: must be an object or absent")
+        return
+    if not tier_names:
+        errors.append(f"{pprefix}: set but {prefix}.modelTiers is empty/absent — nothing to route between")
+    mode = policy.get("mode")
+    if mode is not None and mode not in TIER_MODES:
+        errors.append(f"{pprefix}.mode: must be one of {sorted(TIER_MODES)}, got {mode!r}")
+    start = policy.get("start")
+    if start is not None and start != PRIMARY_TIER and start not in tier_names:
+        errors.append(
+            f"{pprefix}.start: {start!r} is not {PRIMARY_TIER!r} or a name in {prefix}.modelTiers"
+        )
+    esc = policy.get("escalateAfter")
+    if esc is not None and (isinstance(esc, bool) or not isinstance(esc, int) or esc < 1):
+        errors.append(f"{pprefix}.escalateAfter: must be an int >= 1")
 
 
 def validate(data):
@@ -203,6 +324,9 @@ def validate(data):
                             errors.append(
                                 f"{fprefix}.effort: must be one of low|medium|high|null, got {fb_effort!r}"
                             )
+
+        tier_names = _validate_model_tiers(prefix, role, harness, role_flags, errors, warnings)
+        _validate_tier_policy(prefix, role, tier_names, errors)
 
     defaults = data.get("defaults")
     if defaults is not None:

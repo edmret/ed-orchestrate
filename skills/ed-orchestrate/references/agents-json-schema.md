@@ -73,12 +73,46 @@ output, not a second source of truth.
 | `.fallbacks[].provider` | string or `null`, or absent (≡ `null`) | no, per entry | same semantics as `.provider` — meaningful only when the effective harness is `opencode` |
 | `.fallbacks[].cliFlags` | array of strings, or absent | no, per entry | flags for this binding. **Absent** → a same-harness entry inherits the role's `.cliFlags`; a cross-harness entry gets **none** (the role's flags belong to its primary harness — e.g. an agy-only flag must not reach opencode). A cross-harness entry to `agy` therefore needs its own `["--dangerously-skip-permissions"]` |
 | `.fallbacks[].effort` | same enum as `.effort`, or absent (≡ inherit primary `.effort`) | no, per entry | same semantics as `.effort` |
+| `.modelTiers` | array of objects, or absent | no | **N cheaper model bindings below the role's own** (which is the reserved top tier, named `strong`), ordered cheapest first. A router (`laya-route`) picks a tier *name* per task; the orchestrator dispatches with that tier's model. Mainly for `coder`; allowed on any role. Distinct from `fallbacks`: tiers are chosen by **task difficulty** (routing), fallbacks by **availability** (provider failure) or **user override**. Absent ≡ `[]` ≡ no tiering |
+| `.modelTiers[].name` | string `^[a-z][a-z0-9-]*$` | yes, per entry | unique within the array; `strong` is reserved (the role's own `harness`/`model`/`provider`). Conventional: `cheap`, `mid` |
+| `.modelTiers[].model` | string | yes, per entry | same semantics as `.model` |
+| `.modelTiers[].harness` | same enum as `.harness`, or **absent** | no, per entry | absent → same harness as the role. May differ (e.g. a cheap opencode tier under a claude `strong`) |
+| `.modelTiers[].provider` / `.effort` | as `.provider` / `.effort` | no, per entry | provider only meaningful for effective harness `opencode`; `effort` absent ≡ inherit |
+| `.modelTiers[].useWhen` | string, or absent | no, per entry | one line: the kind of task this tier is good enough for. Shown in the roster, quoted to the planner/router, and the thing you tune from outcomes |
+| `.modelTiers[].cliFlags` | array of strings, or absent | no, per entry | same inheritance rule as `.fallbacks[].cliFlags` (same-harness inherits the role's; cross-harness gets none) |
+| `.tierPolicy` | object, or absent | no | requires non-empty `.modelTiers` |
+| `.tierPolicy.mode` | `"off" \| "shadow" \| "on"` | no (default `shadow`) | `shadow`: router computes + logs the tier, dispatch stays `strong`. `on`: dispatch follows the tier. `off`: ignore tiers |
+| `.tierPolicy.start` | tier name or `"strong"` | no | tier to use when the router gives no answer (default `strong` — the safe choice) |
+| `.tierPolicy.escalateAfter` | int ≥ 1 | no (default 2) | failed attempts on a tier before moving up to the next one (cascade ends at `strong`) |
 | `defaults.role` | string | no | must reference an existing key under `roles` |
 | `defaults.worktreeStrategy` / `defaults.delegationMode` | same enums as above | no | fallback for a hand-edited role object missing that field (shouldn't happen via `ed-orchestrate-init`, since it always fills every field) |
 
 `worktreeStrategy`, `delegationMode`, `tools`, and `systemPromptSeed` stay
-role-level and apply whichever binding resolves — primary or fallback.
+role-level and apply whichever binding resolves — primary, fallback or tier.
 `cliFlags` is binding-scoped as described above.
+
+## Model tiers example: coder with N models
+
+```json
+"coder": {
+  "harness": "opencode", "model": "deepseek-v4-flash", "provider": "nan", "effort": null,
+  "...": "...other required fields...",
+  "modelTiers": [
+    { "name": "cheap", "model": "qwen3.6", "provider": "nan",
+      "useWhen": "labels, styling, markup, i18n, docs, copy of an existing pattern" },
+    { "name": "mid", "model": "kimi-k2.6", "provider": "nan",
+      "useWhen": "new component/service logic with a clear spec and tests" }
+  ],
+  "tierPolicy": { "mode": "shadow", "start": "strong", "escalateAfter": 2 }
+}
+```
+
+Tier order is the escalation ladder: `cheap` → `mid` → `strong` (the role's own
+binding, always last). Rollout, outcome logging and tuning:
+[laya-routing.md](laya-routing.md#model-tiers-n-coder-models). Projects that
+predate this field used `coder.fallbacks[0]` as the "cheap" tier by convention —
+migrate by moving that entry into `modelTiers` with `"name": "cheap"`; the
+validator does not require it, and the old convention keeps validating.
 
 ## Fallback example: same-harness provider retry
 

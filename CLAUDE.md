@@ -108,6 +108,15 @@ supervised runs) so these skills can't drift from the binary that actually runs 
 command. Preserve this — don't "helpfully" inline example `orca` invocations as if
 they were canonical.
 
+### Coder model tiers are optional, shadow-first
+
+`modelTiers` (N cheaper bindings, cheapest first; the role's own binding is the reserved top
+tier `strong`) + `tierPolicy` are validated by `validate_agents_json.py`, asked by default for
+`coder` in init step 3c, rendered into the AGENTS.md roster block, and consumed by the
+`laya-route` template (`load_tiers`/`decide_tier`; hard gates are project-tuned). Init always
+writes `tierPolicy.mode: "shadow"` — never `on`. Tiers are chosen by task difficulty;
+`fallbacks` stay for availability/user override. Don't merge the two.
+
 ### `agents.json` is the roster's single source of truth
 
 `ed-orchestrate-init` writes `.orchestrate/agents.json` in the *target*

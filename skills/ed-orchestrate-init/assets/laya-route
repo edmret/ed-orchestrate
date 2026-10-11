@@ -17,10 +17,26 @@ single-aspect `noul` questions scored 9-10/10.
 Usage (any harness, plain shell):
   laya-route --request-en "Make the totals bar sticky" [--request "<original>"]
              [--files a.ts,b.html | --git-diff [BASE]] [--task TASK-123]
-  laya-route outcome --id <decision-id> --value correct|wrong-lane|wrong-tdd|wrong-context [--note "..."]
+  laya-route outcome --id <decision-id> [--value correct|wrong-lane|wrong-tdd|wrong-context]
+             [--tier tier-ok|tier-too-low|tier-too-high] [--model-used M] [--attempts N]
+             [--escalated] [--note "..."]
+  laya-route export [--out-dir DIR] [--stats] [--min-lane N] [--min-tier N]
+             # join decisions+outcomes into fine-tune datasets (lane-*.jsonl, tier-*.jsonl);
+             # --stats prints the readiness report only (lane_ready / tier_ready)
 
 Prints one JSON object: {id, lane, tdd, context, answers, facts, reason, laya}.
 lane: graph | fast | ui-iterate | ask     tdd: first | defer
+
+Coder MODEL TIER (only when .orchestrate/agents.json has coder.modelTiers): adds
+{model_tier, tier_reason, tier_mode, models, dispatch_model[, tier_vote, tier_answers]}.
+  model_tier: a tier name from coder.modelTiers (cheapest first) or "strong" (= the coder's own
+  model). Cheap-first: a capability HARD GATE, a wide fence, or a decisive Laya answer => strong;
+  otherwise the cheapest tier. The planner may pick a middle tier from each tier's `useWhen`.
+  Mode = LAYA_TIER_MODE env, else coder.tierPolicy.mode, else "shadow":
+    off     no tier fields
+    shadow  tier computed and logged, dispatch_model stays "strong"
+    on      dispatch_model follows model_tier
+  Roll out shadow -> on using the outcome log (references/laya-routing.md, "Fine-tuning it").
 Every decision is appended to <memory-dir>/laya/decisions.jsonl (fine-tune dataset).
 """
 import argparse
@@ -94,6 +110,31 @@ LAYER_CONTEXT = {
 GRAPH_LAYERS = {"navigation", "state_api", "config"}
 TDD_LAYERS = {"logic", "state_api", "navigation"}
 VISUAL_LAYERS = {"styles", "template", "component"}
+
+# Coder model tiers. Used only when coder.modelTiers exists in .orchestrate/agents.json.
+# Capability hard gates (NOT the process-weight lane gates): any path hit => "strong".
+# Tune these first when the outcome log shows tier-too-low — they are free and deterministic.
+TIER_HARD_GATES = [
+    ("store/state", re.compile(r"(\.store\.|/stores?/)")),
+    ("guard/route/middleware", re.compile(r"(\.routes?\.[jt]sx?$|guard|interceptor|resolver|middleware)", re.I)),
+    ("generated/API client", re.compile(r"(^|/)(api|generated)/")),
+    ("build/CI config", re.compile(
+        r"(^|/)(package(-lock)?\.json|tsconfig[^/]*\.json|[^/]*\.config\.[jt]s|Dockerfile)$|^\.github/")),
+    ("auth/permissions", re.compile(r"(permission|auth)", re.I)),
+    ("migrations", re.compile(r"/migrations?/")),
+]
+WIDE_FENCE = 8  # files in the scope fence at or above which the task goes straight to "strong"
+HI_TIER_WITH_FILES = 0.9  # Laya bar to override path facts for the tier when files are known
+# Extra atomic questions used ONLY for the tier. A decisive yes can only push UP to "strong".
+TIER_QUESTIONS = {
+    "money_math": "Does this request involve money, decimal, rounding or unit-conversion arithmetic?",
+    "debugging": "Is this request about finding the unknown root cause of a bug or a flaky behavior?",
+}
+TIER_DECIDING = ("state_or_api", "navigation", "auth_rbac", "money_math", "debugging")
+TIER_CHOICE_INSTRUCTIONS = ("Which model tier should implement this coding task? "
+                            "Choose the cheapest that can do it reliably.")
+TIER_STRONG_CRITERIA = ("Hard or risky: new state or store logic, API contracts, routing or guards, "
+                        "auth, concurrency, money math, cross-cutting refactors, or an unclear root cause.")
 # ---- END PROJECT TUNING ----------------------------------------------------
 
 
@@ -119,17 +160,97 @@ def layer_of(path):
     return "other"
 
 
-def ask_laya(state):
-    body = json.dumps({"state": state, "model": "english",
-                       "questions": {k: {"type": "noul", "instructions": v} for k, v in QUESTIONS.items()}})
+def load_tiers(root):
+    """Read coder.modelTiers/tierPolicy from .orchestrate/agents.json.
+
+    Returns None when the project has no tiers (tiering disabled), else
+    {"order": [names cheapest first], "models": {name|"strong": label}, "useWhen": {...},
+     "mode": off|shadow|on, "start": name|"strong"}.
+    """
+    try:
+        with open(os.path.join(root, ".orchestrate", "agents.json")) as fh:
+            coder = json.load(fh)["roles"]["coder"]
+    except (OSError, KeyError, ValueError):
+        return None
+    tiers = [t for t in (coder.get("modelTiers") or []) if isinstance(t, dict) and t.get("name")]
+    if not tiers:
+        return None
+
+    def label(b, base):
+        harness = b.get("harness") or base.get("harness")
+        provider = b.get("provider") if "provider" in b or b.get("harness") else base.get("provider")
+        ref = "%s/%s" % (provider, b["model"]) if provider else b["model"]
+        return "%s:%s" % (harness, ref) if harness else ref
+
+    policy = coder.get("tierPolicy") or {}
+    mode = os.environ.get("LAYA_TIER_MODE", policy.get("mode") or "shadow").strip().lower()
+    return {
+        "order": [t["name"] for t in tiers],
+        "models": dict({t["name"]: label(t, coder) for t in tiers}, strong=label(coder, coder)),
+        "useWhen": {t["name"]: t.get("useWhen") or "" for t in tiers},
+        "mode": mode if mode in ("off", "shadow", "on") else "shadow",
+        "start": policy.get("start") or "strong",
+    }
+
+
+def decide_tier(tiers, files, answers, extra, laya_ok):
+    """Cheap-first: hard gate / wide fence / decisive Laya / unknown situation => "strong"."""
+    gated = sorted({name for f in files for name, rx in TIER_HARD_GATES if rx.search(f)})
+    if gated:
+        return "strong", "hard gate: " + ", ".join(gated)
+    if len(files) >= WIDE_FENCE:
+        return "strong", "wide fence: %d files" % len(files)
+    if laya_ok:
+        scores = dict(answers)
+        scores.update(extra.get("tier_answers", {}))
+        # With a scope fence, path facts are the better witness: a Laya "hot" must be near-certain
+        # to override them. Without files, Laya is all we have, so the normal band applies.
+        bar = HI_TIER_WITH_FILES if files else HI
+        hot = [k for k in TIER_DECIDING if scores.get(k, 0) > bar]
+        if hot:
+            return "strong", "laya: " + ",".join(hot)
+    elif not files:
+        return tiers["start"], "unknown: no files and laya unavailable -> policy start"
+    return tiers["order"][0], "no hard gate; cheapest tier" + ("" if files else " (no files given)")
+
+
+def ask_laya(state, tiers=None):
+    """Returns (answers, extra). `answers` = noul scores for QUESTIONS. `extra` holds the tier
+    answers + Choice vote (empty without tiers, or if the server rejects the tier questions).
+    Replace this function to move the classifier to another model/machine."""
+    questions = {k: {"type": "noul", "instructions": v} for k, v in QUESTIONS.items()}
+    if tiers:
+        questions.update({k: {"type": "noul", "instructions": v} for k, v in TIER_QUESTIONS.items()})
+        criteria = {n: tiers["useWhen"].get(n) or n for n in tiers["order"]}
+        criteria["strong"] = TIER_STRONG_CRITERIA
+        questions["tier_choice"] = {"type": "choice", "instructions": TIER_CHOICE_INSTRUCTIONS,
+                                    "criteria": criteria}
+    try:
+        res = _laya_post(state, questions)
+    except urllib.error.HTTPError as e:
+        if not tiers or e.code not in (400, 422):
+            raise
+        tiers = None  # server rejected the tier questions: fall back to the plain ones
+        res = _laya_post(state, {k: v for k, v in questions.items() if k in QUESTIONS})
+    answers = {k: round(float(res["answers"][k]["noul"]), 3) for k in QUESTIONS}
+    extra = {}
+    if tiers:
+        extra["tier_answers"] = {k: round(float(res["answers"][k]["noul"]), 3) for k in TIER_QUESTIONS}
+        vote = res["answers"].get("tier_choice") or {}
+        if vote.get("probabilities"):
+            extra["tier_vote"] = {"choice": vote.get("choice"), "probabilities": vote["probabilities"]}
+    return answers, extra
+
+
+def _laya_post(state, questions):
+    body = json.dumps({"state": state, "model": "english", "questions": questions})
     req = urllib.request.Request(LAYA_URL.rstrip("/") + "/v1/systemone", body.encode(),
                                  {"content-type": "application/json"})
     token = os.environ.get("LAYA_TOKEN")
     if token:
         req.add_header("authorization", "Bearer " + token)
     with urllib.request.urlopen(req, timeout=TIMEOUT_S) as r:
-        res = json.load(r)
-    return {k: round(float(res["answers"][k]["noul"]), 3) for k in QUESTIONS}
+        return json.load(r)
 
 
 def decide(answers, layers, file_count, root="."):
@@ -221,10 +342,13 @@ def cmd_route(a):
     state = {"request_en": a.request_en}
     if files:
         state["files"] = files[:40]
-    laya_status, answers = "ok", None
+    tiers = load_tiers(root)
+    if tiers and tiers["mode"] == "off":
+        tiers = None
+    laya_status, answers, extra = "ok", None, {}
     for attempt in range(RETRIES + 1):
         try:
-            answers = ask_laya(state)
+            answers, extra = ask_laya(state, tiers)
             if attempt:
                 laya_status = "ok (after %d retry)" % attempt
             break
@@ -244,6 +368,19 @@ def cmd_route(a):
         "reason": reason,
         "laya": laya_status,
     }
+    if tiers:
+        tier, tier_reason = decide_tier(tiers, files, answers or {}, extra, answers is not None)
+        dispatch_tier = tier if tiers["mode"] == "on" else "strong"
+        out.update({
+            "model_tier": tier,
+            "tier_reason": tier_reason,
+            "tier_mode": tiers["mode"],
+            "models": tiers["models"],
+            "dispatch_model": tiers["models"].get(dispatch_tier),
+        })
+        for key in ("tier_vote", "tier_answers"):
+            if extra.get(key):
+                out[key] = extra[key]
     if not a.no_log:
         log(root, dict(out, kind="decision", ts=dt.datetime.now().isoformat(timespec="seconds"),
                        task=a.task, request_en=a.request_en, request=a.request, files=files))
@@ -251,18 +388,202 @@ def cmd_route(a):
 
 
 def cmd_outcome(a):
-    log(repo_root(), {"kind": "outcome", "id": a.id, "value": a.value, "note": a.note,
-                      "ts": dt.datetime.now().isoformat(timespec="seconds")})
-    print(json.dumps({"id": a.id, "value": a.value, "logged": True}))
+    rec = {"kind": "outcome", "id": a.id, "value": a.value, "note": a.note,
+           "ts": dt.datetime.now().isoformat(timespec="seconds")}
+    for key, val in (("tier", a.tier), ("model_used", a.model_used), ("attempts", a.attempts)):
+        if val is not None:
+            rec[key] = val
+    if a.escalated:
+        rec["escalated"] = True
+    log(repo_root(), rec)
+    print(json.dumps({k: v for k, v in rec.items() if k not in ("kind", "note", "ts")} | {"logged": True}))
+
+
+def _read_log(path):
+    """Read the append-only log tolerantly: (records, malformed_count). Never raises."""
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            raw = fh.read()
+    except OSError:
+        return [], 0
+    records, malformed = [], 0
+    for line in raw.splitlines():
+        if not line.strip():
+            continue
+        try:
+            rec = json.loads(line)
+            if not isinstance(rec, dict):
+                raise ValueError("not a JSON object")
+            records.append(rec)
+        except (ValueError, TypeError):
+            malformed += 1
+    return records, malformed
+
+
+def _index_outcomes(records, decisions):
+    """Join outcomes to decisions.
+
+    Several outcomes of the same id and dimension: keep the LATEST by order in
+    file; a differing earlier value flags a conflict. Returns
+    (lane, tier, conflicts, orphans, newest_ts).
+    """
+    lane, tier = {}, {}
+    lane_conflict, tier_conflict = set(), set()
+    orphans, newest_ts = 0, ""
+    for i, rec in enumerate(records):
+        if rec.get("kind") != "outcome":
+            continue
+        ts = rec.get("ts") or ""
+        if ts > newest_ts:
+            newest_ts = ts
+        oid = rec.get("id")
+        if oid not in decisions:
+            orphans += 1
+        value = rec.get("value")
+        if value is not None:
+            prev = lane.get(oid)
+            if prev and prev["value"] != value:
+                lane_conflict.add(oid)
+            lane[oid] = {"out": rec, "value": value, "index": i}
+        tier_value = rec.get("tier")
+        if tier_value is not None:
+            prev = tier.get(oid)
+            if prev and prev["value"] != tier_value:
+                tier_conflict.add(oid)
+            tier[oid] = {"out": rec, "value": tier_value, "index": i}
+    return lane, tier, len(lane_conflict) + len(tier_conflict), orphans, newest_ts
+
+
+def _export_input(dec):
+    inp = {"request": dec.get("request"), "request_en": dec.get("request_en"),
+           "files": dec.get("files") or []}
+    if dec.get("facts") is not None:
+        inp["facts"] = dec["facts"]
+    return inp
+
+
+def _lane_row(dec, entry):
+    return {
+        "id": dec.get("id"),
+        "input": _export_input(dec),
+        "predicted": {k: dec.get(k) for k in ("lane", "tdd", "context", "answers", "reason")},
+        "verdict": entry["value"],
+        "note": entry["out"].get("note"),
+    }
+
+
+def _tier_row(dec, entry):
+    out = entry["out"]
+    predicted = {}
+    for k in ("model_tier", "tier_reason", "tier_answers", "tier_vote", "dispatch_model", "tier_mode"):
+        if dec.get(k) is not None:
+            predicted[k] = dec[k]
+    return {
+        "id": dec.get("id"),
+        "input": _export_input(dec),
+        "predicted": predicted,
+        "verdict": entry["value"],
+        "model_used": out.get("model_used"),
+        "attempts": out.get("attempts"),
+        "escalated": bool(out.get("escalated")),
+        "note": out.get("note"),
+    }
+
+
+def _write_jsonl(path, rows):
+    with open(path, "w", encoding="utf-8") as fh:
+        for row in rows:
+            fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+
+def cmd_export(a):
+    root = repo_root()
+    mem = os.path.join(root, MEMORY_DIR)
+    log_path = os.path.join(mem, "laya", "decisions.jsonl")
+    out_dir = a.out_dir or os.path.join(mem, "laya", "export")
+    if not os.path.isabs(out_dir):
+        out_dir = os.path.join(root, out_dir)
+    records, malformed = _read_log(log_path)
+    decisions = {rec["id"]: rec for rec in records
+                 if rec.get("kind") == "decision" and rec.get("id")}
+    lane, tier, conflicts, orphans, newest_ts = _index_outcomes(records, decisions)
+    ids = sorted(decisions)
+    lane_rows = [_lane_row(decisions[i], lane[i]) for i in ids if i in lane]
+    tier_rows = [_tier_row(decisions[i], tier[i]) for i in ids if i in tier]
+
+    lane_verdicts, lane_counts = {}, {}
+    for row in lane_rows:
+        lane_verdicts[row["verdict"]] = lane_verdicts.get(row["verdict"], 0) + 1
+        ln = row["predicted"].get("lane")
+        lane_counts[ln] = lane_counts.get(ln, 0) + 1
+    tier_verdicts = {}
+    for row in tier_rows:
+        tier_verdicts[row["verdict"]] = tier_verdicts.get(row["verdict"], 0) + 1
+
+    unlabeled = [i for i in ids
+                 if i not in lane and i not in tier
+                 and newest_ts and (decisions[i].get("ts") or "") < newest_ts]
+    shadow = sum(1 for i in ids
+                 if decisions[i].get("tier_mode") == "shadow"
+                 and decisions[i].get("model_tier") is not None and i not in tier)
+    correct = lane_verdicts.get("correct", 0)
+    report = {
+        "log": log_path,
+        "out_dir": out_dir,
+        "total_decisions": len(decisions),
+        "malformed": malformed,
+        "orphans": orphans,
+        "conflicts": conflicts,
+        "lane": {
+            "rows": len(lane_rows),
+            "by_verdict": lane_verdicts,
+            "by_lane": lane_counts,
+            "accuracy": round(correct / len(lane_rows), 4) if lane_rows else 0.0,
+        },
+        "tier": {"rows": len(tier_rows), "by_verdict": tier_verdicts},
+        "shadow_without_outcome": shadow,
+        "unlabeled_ids": unlabeled,
+        "min_lane": a.min_lane,
+        "min_tier": a.min_tier,
+        "lane_ready": len(lane_rows) >= a.min_lane,
+        "tier_ready": len(tier_rows) >= a.min_tier,
+        "written": None,
+    }
+    if not a.stats:
+        os.makedirs(out_dir, exist_ok=True)
+        stamp = dt.date.today().strftime("%Y%m%d")
+        lane_path = os.path.join(out_dir, "lane-%s.jsonl" % stamp)
+        tier_path = os.path.join(out_dir, "tier-%s.jsonl" % stamp)
+        _write_jsonl(lane_path, lane_rows)
+        _write_jsonl(tier_path, tier_rows)
+        report["written"] = {"lane": lane_path, "tier": tier_path}
+    print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
 
 
 def main(argv):
+    if argv and argv[0] == "export":
+        p = argparse.ArgumentParser(prog="laya-route export",
+                                    description="join decisions with outcomes into fine-tune datasets")
+        p.add_argument("--out-dir", help="output dir (default <memory>/laya/export/)")
+        p.add_argument("--stats", action="store_true", help="print the report only; write no files")
+        p.add_argument("--min-lane", type=int, default=30, help="labeled lane rows needed for lane_ready")
+        p.add_argument("--min-tier", type=int, default=30, help="labeled tier rows needed for tier_ready")
+        return cmd_export(p.parse_args(argv[1:]))
     if argv and argv[0] == "outcome":
         p = argparse.ArgumentParser(prog="laya-route outcome")
         p.add_argument("--id", required=True)
-        p.add_argument("--value", required=True, choices=["correct", "wrong-lane", "wrong-tdd", "wrong-context"])
+        p.add_argument("--value", choices=["correct", "wrong-lane", "wrong-tdd", "wrong-context"])
+        p.add_argument("--tier", choices=["tier-ok", "tier-too-low", "tier-too-high"],
+                       help="was the coder model tier right? too-low = cheap failed/was reopened")
+        p.add_argument("--model-used", help="model that actually produced the accepted result")
+        p.add_argument("--attempts", type=int, help="coder attempts across tiers")
+        p.add_argument("--escalated", action="store_true", help="a cheaper tier failed and the task moved up")
         p.add_argument("--note")
-        return cmd_outcome(p.parse_args(argv[1:]))
+        oa = p.parse_args(argv[1:])
+        if not (oa.value or oa.tier):
+            p.error("give --value and/or --tier")
+        return cmd_outcome(oa)
     p = argparse.ArgumentParser(prog="laya-route", description=__doc__.split("\n\n")[0])
     p.add_argument("--request-en", required=True, help="the request, in English (pins Laya's english checkpoint)")
     p.add_argument("--request", help="original wording, logged only")

@@ -189,6 +189,34 @@ flowchart LR
     INT -.->|"reviewer ∥ code-reviewer once"| REV["REVIEW-1.md"]
 ```
 
+## 5a. Coder model tiers (N models)
+
+When `coder.modelTiers` exists in `agents.json`, `laya-route` adds a model decision next to
+the lane. `shadow` (default) logs it but dispatches `strong`; `on` dispatches the tier.
+
+```mermaid
+flowchart TD
+    F["files + request"] --> HG{"hard gate?<br/>store, guard, API client,<br/>build config, auth, migrations"}
+    HG -->|yes| S["strong<br/>(coder's own model)"]
+    HG -->|no| WF{"fence >= 8 files?"}
+    WF -->|yes| S
+    WF -->|no| LQ{"Laya decisive?<br/>state/nav/auth/money/debug > 0.9<br/>(0.65 with no files)"}
+    LQ -->|yes| S
+    LQ -->|no| ND{"Laya down and<br/>no files?"}
+    ND -->|yes| P["tierPolicy.start<br/>(default strong)"]
+    ND -->|no| C["cheapest tier<br/>(planner may pick a middle one<br/>from useWhen)"]
+    C --> RUN["dispatch (mode=on) or log only (shadow)"]
+    S --> RUN
+    P --> RUN
+    RUN --> CAS{"tests + typecheck pass?"}
+    CAS -->|"fails escalateAfter times,<br/>stall, reviewer reopen"| UP["next tier up, same worktree<br/>(ends at strong)"]
+    CAS -->|yes| OUT["laya-route outcome --tier<br/>tier-ok / tier-too-low / tier-too-high"]
+    UP --> RUN
+```
+
+Tuning phases (shadow → tune gates → allow-list → default cheap → fine-tune Laya) are in
+[laya-routing.md](../skills/ed-orchestrate/references/laya-routing.md#fine-tuning-it--in-what-order-and-when).
+
 ## 5. How Laya works
 
 `laya-route` is a stdlib-only script every harness can call from a shell. It fuses two
