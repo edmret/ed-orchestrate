@@ -19,6 +19,8 @@ options:
     description: "Load current roles as the starting point; add, remove, or change individual roles."
   - label: "Add or edit a fallback harness"
     description: "Give one role an alternate harness binding (model/provider/effort). Skips to step 3b."
+  - label: "Edit model tiers"
+    description: "Give a role (usually coder) N cheaper models for a router to pick between. Skips to step 3c."
   - label: "Cancel"
     description: "Leave agents.json and AGENTS.md untouched."
 ```
@@ -173,6 +175,55 @@ Custom role — no default exists, so ask as before:
 > for opencode roles becomes the generated agent file's `description:`)."
 
 Custom roles get `systemPromptSeed: null`.
+
+## Step 3c — model tiers (coder, by default)
+
+Asked after the coder's step 3 fields. The model chosen there is the `strong` tier.
+
+```
+question: "Give the coder cheaper model tiers, so Laya can route easy tasks to them?"
+header: "Model tiers"
+multiSelect: false
+options:
+  - label: "Yes, add tiers (Recommended if you use Laya)"
+    description: "Your <model> becomes the 'strong' tier; add 1-3 cheaper ones (e.g. cheap, mid). Starts in shadow mode: the tier is only logged, dispatch stays on strong, until your outcome log says otherwise."
+  - label: "No, single model"
+    description: "The coder always uses <model>. Nothing is written; you can add tiers later via 'Edit model tiers'."
+```
+
+Per tier (cheapest first), one call with these questions:
+
+```
+question 1: "Name for this tier?"            header: "Tier name"   (free text via Other; options "cheap" / "mid"; 'strong' is reserved)
+question 2: "Which harness runs this tier?"   header: "Tier harness" (first option "Same as coder (<harness>)"; then the step 3 call A harness list)
+question 3: effort — step 3 call A question 2 plus "Inherit from coder"
+```
+then **model** via step 3 call B for the chosen harness (opencode: real `provider/model`
+pairs from `~/.config/opencode/opencode.json`), then free text:
+
+> "One line: what kind of task is `<tier>` good enough for? (e.g. 'labels, styling, markup, i18n, docs, copying an existing pattern'). The router and planner use this, and it is the line you refine from the outcome log."
+
+```
+question: "Add another tier below strong?"
+header: "More tiers"
+multiSelect: false
+options:
+  - label: "No, that's all"
+  - label: "Add another"
+    description: "Tiers escalate in the order added: cheapest first, then up to strong."
+```
+
+Confirm (ladder shown as `cheap (qwen3.6) → mid (kimi) → strong (deepseek-v4-flash)`):
+
+```
+question: "Write these tiers for coder? (tierPolicy.mode = shadow)"
+header: "Confirm tiers"
+multiSelect: false
+options:
+  - label: "Yes, add them"
+  - label: "Edit again"
+  - label: "Cancel"
+```
 
 ## Step 3b — add or edit a fallback
 

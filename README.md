@@ -179,6 +179,17 @@ AGENTS.md block, **checks every harness in your roster has Engram** (and gives t
 a tracked `.engram/config.json` so all worktrees share it. `.ai-memory/` stays the
 source of truth for task state. See `skills/ed-orchestrate/references/engram-memory.md`.
 
+### Coder model tiers: N models, Laya picks
+
+The `coder` can declare several models in `agents.json` (`modelTiers`, cheapest first; its
+own model is the reserved top tier `strong`). `ed-orchestrate-init` offers this by default for
+the coder (step 3c). `laya-route` then adds a `model_tier` to its output: cheap-first, with
+deterministic hard gates (stores, guards, API clients, build config, auth) and decisive Laya
+answers pushing to `strong`. It starts in **shadow** mode (tier logged, dispatch stays strong);
+you turn it `on` after reviewing the outcome log (`laya-route outcome --tier tier-ok|tier-too-low|tier-too-high`),
+and fine-tune in phases. Schema: `skills/ed-orchestrate/references/agents-json-schema.md`;
+rollout and tuning: `skills/ed-orchestrate/references/laya-routing.md` ("Model tiers").
+
 ### Laya router: small changes skip the planner
 
 With graph mode on, init can also install `.orchestrate/bin/laya-route`, a

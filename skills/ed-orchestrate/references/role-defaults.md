@@ -22,6 +22,13 @@ either reports back and stops (`handoff`) or answers `worker_done` / `escalation
 
 **description**: Implements features and fixes bugs against a scoped task spec.
 
+**modelTiers (offered by default at init, optional)**: the coder is the one role where
+N models pay off — the model picked in the interview is the `strong` tier and init asks
+for cheaper ones below it (`ed-orchestrate-init` step 3c). Suggested `useWhen` defaults:
+`cheap` — "labels, styling, markup, i18n, docs, copying an existing pattern with a clear
+spec"; `mid` — "new logic with a clear spec and tests". Written only if the user opts in;
+starts in `shadow` mode. Not part of the materialized defaults below.
+
 **systemPromptSeed**:
 
 ```

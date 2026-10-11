@@ -91,6 +91,28 @@ a fallback was used — never silently swap providers without saying so. If none
 succeed, stop and surface the failure; don't fall through to a cross-harness
 fallback here — that's only ever chosen explicitly via step 2a.
 
+## 2c. Resolve model tier
+
+Applies only when the resolved role has `modelTiers` in `agents.json`.
+
+- The task carries a tier (planner copied `model_tier` into the node frontmatter, or
+  `laya-route` printed one) → use it. The user naming a tier or model in the request
+  ("use the cheap model", "run it on strong") always wins.
+- No tier given → run the project's router if it has one (step 0); else use
+  `tierPolicy.start` (default `strong`).
+- `tierPolicy.mode` is `shadow` (the default) → **log the tier but dispatch `strong`**; only
+  `on` lets the tier pick the binding. `off` ignores tiers.
+- A tier name replaces the role's `harness`/`model`/`provider`/`effort` (absent tier fields
+  inherit the role's; `cliFlags` follow the fallback inheritance rule) for every step below.
+  `strong` = the role's own binding. Unknown tier name → stop and ask; don't guess.
+- **Cascade**: after `tierPolicy.escalateAfter` (default 2) failed attempts on a tier, a stall,
+  or a reviewer reopen for correctness, re-delegate one tier up (same worktree, pass the failure
+  notes); `strong` ends the ladder. Report which tier/model ran. When the router logged a
+  decision id, record `laya-route outcome --id <id> --tier tier-ok|tier-too-low|tier-too-high
+  --model-used <m> --attempts <n>` so the router can be tuned (references/laya-routing.md).
+- Tiers compose with 2a/2b: a harness override (2a) beats tiering; a provider failure (2b)
+  retries within the tier's harness.
+
 ## 3. Resolve delegation mode
 
 Same verb-based disambiguation the `orca-cli`/`orchestration` skills already use:
